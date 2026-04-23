@@ -82,10 +82,12 @@ npm run build
 
 ## 致谢
 
+- [DG-LAB-OPENSOURCE](https://github.com/DG-LAB-OPENSOURCE/DG-LAB-OPENSOURCE) — 官方开源 BLE 协议
+- [openclaw-plugin-dg-lab](https://github.com/FengYing1314/openclaw-plugin-dg-lab) — 波形解析器参考实现
+- [sse-dg-lab](https://github.com/admilkjs/sse-dg-lab) — Dungeonlab+pulse 波形解析引擎
 - [DG-Agent](https://github.com/0xNullAI/DG-Agent) — 本项目的蓝牙协议和波形系统参考了 DG-Agent 项目
 - [Trystero](https://github.com/dmotz/trystero) — 无服务器 P2P WebRTC 房间
 - [DG-Lab](https://www.dungeon-lab.com/) — DG-Lab Coyote 设备制造商
-- [PeerJS](https://peerjs.com/) — WebRTC 库参考
 
 ## 免责声明
 
