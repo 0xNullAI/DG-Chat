@@ -1,6 +1,46 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap } from 'lucide-react';
 import type { CmdAction, MemberState } from '../lib/protocol';
+
+function useRepeatAction(action: () => void, initialDelay = 400, repeatInterval = 100) {
+  const timerRef = useRef<number | null>(null);
+  const intervalRef = useRef<number | null>(null);
+  const actionRef = useRef(action);
+  actionRef.current = action;
+
+  const stop = useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+  }, []);
+
+  const start = useCallback(() => {
+    stop();
+    actionRef.current();
+    timerRef.current = window.setTimeout(() => {
+      intervalRef.current = window.setInterval(() => actionRef.current(), repeatInterval);
+    }, initialDelay);
+  }, [stop, initialDelay, repeatInterval]);
+
+  useEffect(() => stop, [stop]);
+
+  return { onPointerDown: start, onPointerUp: stop, onPointerLeave: stop };
+}
+
+function RepeatButton({ onAction, className, children }: {
+  onAction: () => void;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const handlers = useRepeatAction(onAction);
+  return (
+    <button
+      {...handlers}
+      onContextMenu={e => e.preventDefault()}
+      className={className}
+      style={{ touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
+    >{children}</button>
+  );
+}
 import type { WaveformDefinition } from '../lib/waveforms';
 
 interface MemberControlProps {
@@ -71,15 +111,15 @@ function FireCircle({ label, strength, maxStrength, disabled, firing, onStrength
       </div>
       {/* Strength +/- */}
       <div className="mt-2 flex items-center gap-2">
-        <button
-          onClick={() => onStrengthChange(Math.max(0, strength - 1))}
+        <RepeatButton
+          onAction={() => onStrengthChange(Math.max(0, strength - 1))}
           className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--surface-border)] bg-[var(--bg-elevated)] text-xs text-[var(--text)] hover:border-[var(--accent)] active:scale-90"
-        >−</button>
+        >−</RepeatButton>
         <span className="w-8 text-center text-xs tabular-nums font-medium text-[var(--text)]">{strength}</span>
-        <button
-          onClick={() => onStrengthChange(Math.min(maxStrength, strength + 1))}
+        <RepeatButton
+          onAction={() => onStrengthChange(Math.min(maxStrength, strength + 1))}
           className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--surface-border)] bg-[var(--bg-elevated)] text-xs text-[var(--text)] hover:border-[var(--accent)] active:scale-90"
-        >+</button>
+        >+</RepeatButton>
       </div>
     </div>
   );
@@ -191,8 +231,8 @@ export function MemberControl({
               <span className="text-[10px] text-[var(--text-faint)]">A:{limitA}</span>
             </div>
             <div className="mt-3 flex items-center gap-3">
-              <button onClick={() => adjustStrength('A', strengthA - 1)} className="strength-btn">−</button>
-              <button onClick={() => adjustStrength('A', strengthA + 1)} className="strength-btn">+</button>
+              <RepeatButton onAction={() => adjustStrength('A', strengthA - 1)} className="strength-btn">−</RepeatButton>
+              <RepeatButton onAction={() => adjustStrength('A', strengthA + 1)} className="strength-btn">+</RepeatButton>
             </div>
           </div>
 
@@ -221,8 +261,8 @@ export function MemberControl({
               <span className="text-[10px] text-[var(--text-faint)]">B:{limitB}</span>
             </div>
             <div className="mt-3 flex items-center gap-3">
-              <button onClick={() => adjustStrength('B', strengthB - 1)} className="strength-btn">−</button>
-              <button onClick={() => adjustStrength('B', strengthB + 1)} className="strength-btn">+</button>
+              <RepeatButton onAction={() => adjustStrength('B', strengthB - 1)} className="strength-btn">−</RepeatButton>
+              <RepeatButton onAction={() => adjustStrength('B', strengthB + 1)} className="strength-btn">+</RepeatButton>
             </div>
           </div>
         </div>
