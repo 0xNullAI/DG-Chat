@@ -35,13 +35,15 @@ export function usePeerRoom(displayName: string) {
       const room = joinRoom({
         appId: 'dg-chat-v1',
         relayUrls: [
-          'wss://relay.damus.io',
           'wss://nos.lol',
           'wss://relay.nostr.place',
           'wss://nostr.data.haus',
           'wss://purplerelay.com',
+          'wss://relay.angor.io',
+          'wss://nostr.vulpem.com',
+          'wss://relay.mostr.pub',
         ],
-        relayRedundancy: 5,
+        relayRedundancy: 7,
       }, roomCode);
       roomRef.current = room;
       setRoomId(roomCode);
