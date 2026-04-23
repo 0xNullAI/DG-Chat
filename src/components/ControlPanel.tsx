@@ -85,7 +85,7 @@ export function ControlPanel({ members, peers, onSendCommand, roomId, waveforms,
   }
 
   // Member list view
-  const joinUrl = roomId ? `${window.location.origin}?room=${roomId}` : '';
+  const joinUrl = roomId ? `${window.location.origin}${window.location.pathname}?room=${roomId}` : '';
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">

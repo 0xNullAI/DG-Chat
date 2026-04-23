@@ -1,10 +1,10 @@
 # DG-Chat
 
-基于 WebRTC 的 P2P 多人房间，无需服务器，打开网页即可群聊 + 远程控制 DG-Lab 郊狼设备。
+基于 MQTT 的多人房间，无需服务器部署，打开网页即可群聊 + 远程控制 DG-Lab 郊狼设备。
 
 ## 功能
 
-- **P2P 通信** — 基于 WebRTC 直连，所有数据端到端加密（DTLS），无需后端服务器
+- **即时通信** — 基于 MQTT 公共 Broker，多节点冗余，无需自建服务器
 - **多人房间** — 输入房间号即可加入，支持二维码邀请
 - **群聊** — 左侧实时聊天面板
 - **远程设备控制** — 右侧成员列表，点击任意成员可远程控制其 DG-Lab 郊狼设备
@@ -67,7 +67,7 @@ npm run dev
 - [openclaw-plugin-dg-lab](https://github.com/FengYing1314/openclaw-plugin-dg-lab) — 波形解析器参考实现
 - [sse-dg-lab](https://github.com/admilkjs/sse-dg-lab) — Dungeonlab+pulse 波形解析引擎
 - [DG-Agent](https://github.com/0xNullAI/DG-Agent) — 蓝牙协议与波形系统参考
-- [Trystero](https://github.com/dmotz/trystero) — 无服务器 P2P WebRTC
+- [MQTT.js](https://github.com/mqttjs/MQTT.js) — JavaScript MQTT 客户端
 - [DG-Lab](https://www.dungeon-lab.com/) — 郊狼设备制造商
 
 ## 免责声明

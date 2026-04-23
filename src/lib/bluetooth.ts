@@ -137,6 +137,7 @@ export class DGLabDevice {
   /** v3 ACK 门控：是否允许发送强度变更 */
   private ackAllowed = true;
   private pendingSeq = 0;
+  private ackSentAt = 0;
 
   // ----------------------------------------------------------
   // 公开 API
@@ -474,13 +475,19 @@ export class DGLabDevice {
     let seq = 0;
     let mode = 0x00; // 默认不改变强度
 
+    // ACK 超时保护：超过 500ms 未收到 ACK 则重新允许发送
+    if (!this.ackAllowed && this.ackSentAt > 0 && Date.now() - this.ackSentAt > 500) {
+      this.ackAllowed = true;
+      this.pendingSeq = 0;
+    }
+
     if (strChanged && this.ackAllowed) {
-      // 强度有变化且 ACK 已收到，发送绝对模式
       this.seq = this.seq >= 15 ? 1 : this.seq + 1;
       seq = this.seq;
-      mode = 0x0F; // 双通道绝对模式
+      mode = 0x0F;
       this.ackAllowed = false;
       this.pendingSeq = seq;
+      this.ackSentAt = Date.now();
       this.lastSentStrA = this.strengthA;
       this.lastSentStrB = this.strengthB;
     }
@@ -656,6 +663,7 @@ export class DGLabDevice {
     this.actualStrB = 0;
     this.ackAllowed = true;
     this.pendingSeq = 0;
+    this.ackSentAt = 0;
     this.tickInFlight = false;
     this.channelA = makeChannelState();
     this.channelB = makeChannelState();

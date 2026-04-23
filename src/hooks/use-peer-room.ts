@@ -1,9 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { joinRoom, selfId, getRelaySockets, type Room } from '@trystero-p2p/mqtt';
+import mqtt from 'mqtt';
 import type { ChatMessage, DeviceCommand, MemberState, CmdAction } from '../lib/protocol';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ActionSender = (data: any, targetPeers?: string | string[]) => void;
 
 export type RoomStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
@@ -12,6 +9,20 @@ export const DEFAULT_RELAYS = [
   'wss://broker-cn.emqx.io:8084/mqtt',
   'wss://public:public@public.cloud.shiftr.io',
 ];
+
+const PRESENCE_INTERVAL_MS = 3000;
+const PRESENCE_TIMEOUT_MS = 10000;
+const SEEN_MSG_MAX = 200;
+
+function generatePeerId(): string {
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+  let id = '';
+  const arr = crypto.getRandomValues(new Uint8Array(20));
+  for (let i = 0; i < 20; i++) id += chars[arr[i] % 62];
+  return id;
+}
+
+const selfId = generatePeerId();
 
 export function usePeerRoom(displayName: string) {
   const [status, setStatus] = useState<RoomStatus>('idle');
@@ -22,11 +33,14 @@ export function usePeerRoom(displayName: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [debugLog, setDebugLog] = useState<string[]>([]);
 
-  const roomRef = useRef<Room | null>(null);
-  const sendChatRef = useRef<ActionSender | null>(null);
-  const sendCommandRef = useRef<ActionSender | null>(null);
-  const sendStateRef = useRef<ActionSender | null>(null);
+  const clientsRef = useRef<mqtt.MqttClient[]>([]);
+  const roomIdRef = useRef<string | null>(null);
   const onCommandRef = useRef<((cmd: DeviceCommand, peerId: string) => void) | null>(null);
+  const presenceTimerRef = useRef<number | null>(null);
+  const peerTimersRef = useRef<Map<string, number>>(new Map());
+  const displayNameRef = useRef(displayName);
+  displayNameRef.current = displayName;
+  const seenMsgsRef = useRef<Set<string>>(new Set());
 
   const log = useCallback((msg: string) => {
     const time = new Date().toLocaleTimeString();
@@ -39,171 +53,241 @@ export function usePeerRoom(displayName: string) {
     onCommandRef.current = handler;
   }, []);
 
+  const removePeer = useCallback((peerId: string) => {
+    setPeers(prev => prev.filter(p => p !== peerId));
+    setMembers(prev => {
+      const next = new Map(prev);
+      next.delete(peerId);
+      return next;
+    });
+    const timer = peerTimersRef.current.get(peerId);
+    if (timer) clearTimeout(timer);
+    peerTimersRef.current.delete(peerId);
+  }, []);
+
+  /** Publish to ALL connected brokers for redundancy */
+  const publishAll = useCallback((topic: string, payload: string, qos: 0 | 1 = 0) => {
+    for (const client of clientsRef.current) {
+      if (client.connected) {
+        client.publish(topic, payload, { qos });
+      }
+    }
+  }, []);
+
   const join = useCallback((roomCode: string, relayUrls?: string[]) => {
-    if (roomRef.current) return;
+    if (clientsRef.current.length > 0) return;
 
     const relays = relayUrls && relayUrls.length > 0 ? relayUrls : DEFAULT_RELAYS;
 
     setStatus('connecting');
     setError(null);
+    roomIdRef.current = roomCode;
     log(`My peer ID: ${selfId}`);
     log(`Joining room "${roomCode}" via ${relays.length} brokers...`);
 
-    try {
-      const room = joinRoom({
-        appId: 'dg-chat-v1',
-        relayUrls: relays,
-        relayRedundancy: relays.length,
-      }, roomCode);
-      roomRef.current = room;
-      setRoomId(roomCode);
+    const topicBase = `dg-chat/r/${roomCode}`;
+    const topics = {
+      presence: `${topicBase}/presence`,
+      chat: `${topicBase}/chat`,
+      cmdSelf: `${topicBase}/cmd/${selfId}`,
+      state: `${topicBase}/state`,
+      leave: `${topicBase}/leave`,
+    };
 
-      log('joinRoom() returned, setting up channels...');
+    let anyConnected = false;
+    const allClients: mqtt.MqttClient[] = [];
 
-      const [sendChat, onChat] = room.makeAction('chat');
-      const [sendCmd, onCmd] = room.makeAction('cmd');
-      const [sendState, onState] = room.makeAction('state');
+    function isDuplicate(msgId: string): boolean {
+      if (seenMsgsRef.current.has(msgId)) return true;
+      seenMsgsRef.current.add(msgId);
+      if (seenMsgsRef.current.size > SEEN_MSG_MAX) {
+        const first = seenMsgsRef.current.values().next().value;
+        if (first) seenMsgsRef.current.delete(first);
+      }
+      return false;
+    }
 
-      sendChatRef.current = sendChat;
-      sendCommandRef.current = sendCmd;
-      sendStateRef.current = sendState;
-
-      room.onPeerJoin((peerId: string) => {
-        log(`✅ Peer joined: ${peerId}`);
-        setPeers(prev => [...prev, peerId]);
+    function handlePresence(peerId: string, data: Record<string, unknown>) {
+      setPeers(prev => {
+        if (prev.includes(peerId)) return prev;
+        log(`✅ Peer joined: ${peerId.slice(0, 8)}... (${data.displayName ?? 'unknown'})`);
+        return [...prev, peerId];
       });
 
-      room.onPeerLeave((peerId: string) => {
-        log(`❌ Peer left: ${peerId}`);
-        setPeers(prev => prev.filter(p => p !== peerId));
-        setMembers(prev => {
-          const next = new Map(prev);
-          next.delete(peerId);
-          return next;
-        });
+      const existing = peerTimersRef.current.get(peerId);
+      if (existing) clearTimeout(existing);
+      peerTimersRef.current.set(peerId, window.setTimeout(() => {
+        log(`❌ Peer timeout: ${peerId.slice(0, 8)}...`);
+        removePeer(peerId);
+      }, PRESENCE_TIMEOUT_MS));
+    }
+
+    for (const url of relays) {
+      const client = mqtt.connect(url, {
+        clientId: `dg-${selfId.slice(0, 8)}-${Math.random().toString(36).slice(2, 6)}`,
+        clean: true,
+        connectTimeout: 8000,
+        reconnectPeriod: 5000,
       });
+      allClients.push(client);
 
-      onChat((data: unknown, peerId: string) => {
-        const msg = data as ChatMessage;
-        setMessages(prev => [...prev, { ...msg, sender: peerId }]);
-      });
+      client.on('connect', () => {
+        log(`✅ Connected to ${url}`);
 
-      onCmd((data: unknown, peerId: string) => {
-        const cmd = data as DeviceCommand;
-        onCommandRef.current?.(cmd, peerId);
-      });
-
-      onState((data: unknown, peerId: string) => {
-        const state = data as MemberState;
-        setMembers(prev => {
-          const next = new Map(prev);
-          next.set(peerId, { ...state, peerId });
-          return next;
-        });
-      });
-
-      setStatus('connected');
-      log('Room joined, waiting for peers...');
-
-      // Monitor broker connections
-      setTimeout(() => {
-        try {
-          const sockets = getRelaySockets();
-          const entries = Object.entries(sockets);
-          log(`Broker connections: ${entries.length}`);
-          entries.forEach(([url, socket]) => {
-            const state = (socket as WebSocket)?.readyState;
-            const stateStr = state === 1 ? '✅ OPEN' : state === 0 ? '⏳ CONNECTING' : state === 2 ? '⚠️ CLOSING' : '❌ CLOSED';
-            log(`  ${url}: ${stateStr}`);
-          });
-          if (entries.length === 0) {
-            log('⚠️ No broker sockets found — brokers may still be connecting');
-          }
-        } catch (e) {
-          log(`getRelaySockets error: ${e}`);
-        }
-      }, 3000);
-
-      // Direct MQTT pub/sub test — bypass Trystero to verify broker messaging works
-      import('mqtt').then(({ default: mqtt }) => {
-        const testTopic = `dg-chat-ping/${roomCode}`;
-        const myId = selfId;
-        log(`MQTT ping test: topic="${testTopic}", id=${myId.slice(0, 8)}...`);
-
-        const client = mqtt.connect(relays[0]);
-        client.on('connect', () => {
-          log(`Ping test: connected to ${relays[0]}`);
-          client.subscribe(testTopic, (err) => {
-            if (err) { log(`Ping test: subscribe error: ${err.message}`); return; }
-            log('Ping test: subscribed, publishing...');
-            client.publish(testTopic, JSON.stringify({ id: myId, t: Date.now() }));
-          });
-        });
-        client.on('message', (_topic: string, payload: Buffer) => {
-          try {
-            const data = JSON.parse(payload.toString());
-            if (data.id === myId) {
-              log('Ping test: ✅ received own message (broker echo works)');
-            } else {
-              log(`Ping test: ✅✅ received OTHER peer: ${data.id.slice(0, 8)}... — MQTT messaging works!`);
-            }
-          } catch { /* ignore */ }
-        });
-        client.on('error', (err: Error) => {
-          log(`Ping test: ❌ error: ${err.message}`);
-        });
-
-        // Republish every 3s for 30s
-        let count = 0;
-        const interval = setInterval(() => {
-          count++;
-          if (count > 10 || !roomRef.current) {
-            clearInterval(interval);
-            client.end();
-            if (count > 10) log('Ping test: stopped after 30s');
+        const subTopics = [topics.presence, topics.chat, topics.cmdSelf, topics.state, topics.leave];
+        client.subscribe(subTopics, { qos: 1 }, (err) => {
+          if (err) {
+            log(`❌ Subscribe error on ${url}: ${err.message}`);
             return;
           }
-          client.publish(testTopic, JSON.stringify({ id: myId, t: Date.now() }));
-        }, 3000);
-      }).catch(e => log(`MQTT import error: ${e}`));
+          log(`✅ Subscribed on ${url}`);
 
-    } catch (err) {
-      console.error('Failed to join room:', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      log(`❌ Join failed: ${msg}`);
-      setStatus('error');
-      setError(msg);
-      roomRef.current = null;
+          if (!anyConnected) {
+            anyConnected = true;
+            clientsRef.current = allClients;
+            setRoomId(roomCode);
+            setStatus('connected');
+
+            // Start presence heartbeat
+            presenceTimerRef.current = window.setInterval(() => {
+              publishAll(topics.presence, JSON.stringify({
+                _from: selfId,
+                _id: crypto.randomUUID(),
+                displayName: displayNameRef.current,
+                t: Date.now(),
+              }));
+            }, PRESENCE_INTERVAL_MS);
+          }
+
+          // Send presence on this broker
+          client.publish(topics.presence, JSON.stringify({
+            _from: selfId,
+            _id: crypto.randomUUID(),
+            displayName: displayNameRef.current,
+            t: Date.now(),
+          }), { qos: 0 });
+        });
+
+        // Handle incoming messages (deduplication across brokers)
+        client.on('message', (_topic: string, payload: Buffer) => {
+          let data: Record<string, unknown>;
+          try {
+            data = JSON.parse(payload.toString());
+          } catch {
+            return;
+          }
+          const from = data._from as string;
+          if (!from || from === selfId) return;
+
+          // Deduplicate messages received from multiple brokers
+          const msgId = data._id as string;
+          if (msgId && isDuplicate(msgId)) return;
+
+          if (_topic === topics.presence) {
+            handlePresence(from, data);
+          } else if (_topic === topics.chat) {
+            const msg = data as unknown as ChatMessage;
+            setMessages(prev => [...prev, { ...msg, sender: from }]);
+          } else if (_topic === topics.cmdSelf) {
+            const cmd = data as unknown as DeviceCommand;
+            onCommandRef.current?.(cmd, from);
+          } else if (_topic === topics.state) {
+            const state = data as unknown as MemberState;
+            setMembers(prev => {
+              const next = new Map(prev);
+              next.set(from, { ...state, peerId: from });
+              return next;
+            });
+          } else if (_topic === topics.leave) {
+            log(`❌ Peer left: ${from.slice(0, 8)}...`);
+            removePeer(from);
+          }
+        });
+      });
+
+      client.on('error', (err: Error) => {
+        log(`❌ ${url}: ${err.message}`);
+      });
+
+      client.on('offline', () => {
+        log(`⚠️ ${url} offline`);
+      });
     }
-  }, [log]);
+
+    // Overall timeout
+    setTimeout(() => {
+      if (!anyConnected) {
+        log('❌ Failed to connect to any broker');
+        setStatus('error');
+        setError('无法连接到任何信令服务器');
+        allClients.forEach(c => c.end(true));
+      }
+    }, 12000);
+  }, [log, removePeer, publishAll]);
 
   const sendMessage = useCallback((text: string) => {
+    const msgId = crypto.randomUUID();
     const msg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: msgId,
       sender: 'self',
       senderName: displayName,
       text,
       timestamp: Date.now(),
     };
     setMessages(prev => [...prev, msg]);
-    sendChatRef.current?.(msg);
-  }, [displayName]);
+
+    const roomCode = roomIdRef.current;
+    if (roomCode) {
+      publishAll(`dg-chat/r/${roomCode}/chat`, JSON.stringify({
+        ...msg,
+        _from: selfId,
+        _id: msgId,
+      }), 1);
+    }
+  }, [displayName, publishAll]);
 
   const sendCommand = useCallback((target: string, action: CmdAction, data?: string) => {
     const cmd: DeviceCommand = { target, action, data };
-    sendCommandRef.current?.(cmd, target);
-  }, []);
+    const roomCode = roomIdRef.current;
+    if (roomCode) {
+      publishAll(`dg-chat/r/${roomCode}/cmd/${target}`, JSON.stringify({
+        ...cmd,
+        _from: selfId,
+        _id: crypto.randomUUID(),
+      }), 1);
+    }
+  }, [publishAll]);
 
   const broadcastState = useCallback((state: MemberState) => {
-    sendStateRef.current?.(state);
-  }, []);
+    const roomCode = roomIdRef.current;
+    if (roomCode) {
+      publishAll(`dg-chat/r/${roomCode}/state`, JSON.stringify({
+        ...state,
+        _from: selfId,
+      }));
+    }
+  }, [publishAll]);
 
   const leave = useCallback(() => {
-    roomRef.current?.leave();
-    roomRef.current = null;
-    sendChatRef.current = null;
-    sendCommandRef.current = null;
-    sendStateRef.current = null;
+    const roomCode = roomIdRef.current;
+    if (roomCode) {
+      publishAll(`dg-chat/r/${roomCode}/leave`, JSON.stringify({
+        _from: selfId,
+        _id: crypto.randomUUID(),
+      }), 1);
+    }
+
+    if (presenceTimerRef.current) {
+      clearInterval(presenceTimerRef.current);
+      presenceTimerRef.current = null;
+    }
+    peerTimersRef.current.forEach(timer => clearTimeout(timer));
+    peerTimersRef.current.clear();
+
+    clientsRef.current.forEach(c => c.end(true));
+    clientsRef.current = [];
+    roomIdRef.current = null;
+    seenMsgsRef.current.clear();
     setStatus('idle');
     setError(null);
     setRoomId(null);
@@ -211,15 +295,26 @@ export function usePeerRoom(displayName: string) {
     setMembers(new Map());
     setMessages([]);
     setDebugLog([]);
-  }, []);
+  }, [publishAll]);
 
   useEffect(() => {
     return () => {
-      roomRef.current?.leave();
+      if (presenceTimerRef.current) clearInterval(presenceTimerRef.current);
+      peerTimersRef.current.forEach(timer => clearTimeout(timer));
+      const roomCode = roomIdRef.current;
+      if (roomCode) {
+        for (const client of clientsRef.current) {
+          if (client.connected) {
+            client.publish(`dg-chat/r/${roomCode}/leave`, JSON.stringify({ _from: selfId }));
+          }
+        }
+      }
+      clientsRef.current.forEach(c => c.end(true));
     };
   }, []);
 
   return {
+    selfId,
     status,
     connected: status === 'connected',
     error,
