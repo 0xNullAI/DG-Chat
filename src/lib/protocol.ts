@@ -1,0 +1,41 @@
+// P2P 消息协议类型定义
+
+export interface ChatMessage {
+  id: string;
+  sender: string;
+  senderName: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface DeviceCommand {
+  target: string;
+  action: CmdAction;
+  data?: string;
+}
+
+export type CmdAction =
+  | 'adjust_strength'
+  | 'change_wave'
+  | 'start'
+  | 'stop'
+  | 'stop_wave'
+  | 'fire'
+  | 'fire_stop'
+  | 'burst'
+  | 'vibrate'
+  | 'alert'
+  | 'bg'
+  | 'shake'
+  | 'beep';
+
+export interface MemberState {
+  peerId: string;
+  displayName: string;
+  deviceConnected: boolean;
+  strengthA: number;
+  strengthB: number;
+  waveA: string | null;
+  waveB: string | null;
+  battery: number | null;
+}
