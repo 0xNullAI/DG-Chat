@@ -271,6 +271,9 @@ export function RoomEntry({ displayName, onNameChange, onJoin, status, error }: 
         <p className="mt-4 text-center text-[11px] leading-relaxed text-[var(--text-faint)]">
           房间基于 P2P 直连，无需注册。输入相同房间号即可互相连接。
         </p>
+        <p className="mt-3 text-center text-[10px] text-[var(--text-faint)]">
+          本项目仅供学习交流使用，请遵守当地法律法规。<a href="https://github.com/0xNullAI/DG-Chat" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">GitHub</a>
+        </p>
       </div>
     </div>
   );
