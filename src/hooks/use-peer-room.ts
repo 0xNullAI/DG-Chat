@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { joinRoom, type Room } from 'trystero/nostr';
+import { joinRoom, type Room } from '@trystero-p2p/mqtt';
 import type { ChatMessage, DeviceCommand, MemberState, CmdAction } from '../lib/protocol';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -8,14 +8,11 @@ type ActionSender = (data: any, targetPeers?: string | string[]) => void;
 export type RoomStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
 export const DEFAULT_RELAYS = [
-  'wss://relay.nosflare.com',
-  'wss://relay.primal.net',
-  'wss://purplerelay.com',
-  'wss://relay.mostr.pub',
-  'wss://relay.nostr.net',
-  'wss://relay.nostr.place',
-  'wss://relay.angor.io',
-  'wss://nos.lol',
+  'wss://broker-cn.emqx.io:8084/mqtt',
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://test.mosquitto.org:8081/mqtt',
+  'wss://public:public@public.cloud.shiftr.io',
 ];
 
 export function usePeerRoom(displayName: string) {
