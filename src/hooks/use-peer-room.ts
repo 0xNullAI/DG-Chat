@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import mqtt from 'mqtt';
-import type { ChatMessage, DeviceCommand, MemberState, CmdAction } from '../lib/protocol';
+import type { ChatMessage, DeviceCommand, MemberState, CmdAction, WaveformTransfer } from '../lib/protocol';
 
 export type RoomStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
@@ -36,6 +36,7 @@ export function usePeerRoom(displayName: string) {
   const clientsRef = useRef<mqtt.MqttClient[]>([]);
   const roomIdRef = useRef<string | null>(null);
   const onCommandRef = useRef<((cmd: DeviceCommand, peerId: string) => void) | null>(null);
+  const onWaveformRef = useRef<((transfer: WaveformTransfer, peerId: string) => void) | null>(null);
   const presenceTimerRef = useRef<number | null>(null);
   const peerTimersRef = useRef<Map<string, number>>(new Map());
   const displayNameRef = useRef(displayName);
@@ -51,6 +52,10 @@ export function usePeerRoom(displayName: string) {
 
   const setCommandHandler = useCallback((handler: (cmd: DeviceCommand, peerId: string) => void) => {
     onCommandRef.current = handler;
+  }, []);
+
+  const setWaveformHandler = useCallback((handler: (transfer: WaveformTransfer, peerId: string) => void) => {
+    onWaveformRef.current = handler;
   }, []);
 
   const removePeer = useCallback((peerId: string) => {
@@ -90,6 +95,7 @@ export function usePeerRoom(displayName: string) {
       presence: `${topicBase}/presence`,
       chat: `${topicBase}/chat`,
       cmdSelf: `${topicBase}/cmd/${selfId}`,
+      waveSelf: `${topicBase}/wave/${selfId}`,
       state: `${topicBase}/state`,
       leave: `${topicBase}/leave`,
     };
@@ -134,7 +140,7 @@ export function usePeerRoom(displayName: string) {
       client.on('connect', () => {
         log(`✅ Connected to ${url}`);
 
-        const subTopics = [topics.presence, topics.chat, topics.cmdSelf, topics.state, topics.leave];
+        const subTopics = [topics.presence, topics.chat, topics.cmdSelf, topics.waveSelf, topics.state, topics.leave];
         client.subscribe(subTopics, { qos: 1 }, (err) => {
           if (err) {
             log(`❌ Subscribe error on ${url}: ${err.message}`);
@@ -191,6 +197,9 @@ export function usePeerRoom(displayName: string) {
           } else if (_topic === topics.cmdSelf) {
             const cmd = data as unknown as DeviceCommand;
             onCommandRef.current?.(cmd, from);
+          } else if (_topic === topics.waveSelf) {
+            const transfer = data as unknown as WaveformTransfer;
+            onWaveformRef.current?.(transfer, from);
           } else if (_topic === topics.state) {
             const state = data as unknown as MemberState;
             setMembers(prev => {
@@ -252,6 +261,17 @@ export function usePeerRoom(displayName: string) {
     if (roomCode) {
       publishAll(`dg-chat/r/${roomCode}/cmd/${target}`, JSON.stringify({
         ...cmd,
+        _from: selfId,
+        _id: crypto.randomUUID(),
+      }), 1);
+    }
+  }, [publishAll]);
+
+  const sendWaveform = useCallback((targetPeerId: string, transfer: WaveformTransfer) => {
+    const roomCode = roomIdRef.current;
+    if (roomCode) {
+      publishAll(`dg-chat/r/${roomCode}/wave/${targetPeerId}`, JSON.stringify({
+        ...transfer,
         _from: selfId,
         _id: crypto.randomUUID(),
       }), 1);
@@ -327,7 +347,9 @@ export function usePeerRoom(displayName: string) {
     leave,
     sendMessage,
     sendCommand,
+    sendWaveform,
     broadcastState,
     setCommandHandler,
+    setWaveformHandler,
   };
 }

@@ -35,6 +35,13 @@ export function useWaveforms() {
     return null; // no error
   }, []);
 
+  const addRemoteWaveform = useCallback((waveform: WaveformDefinition) => {
+    setCustomWaveforms(prev => {
+      if (prev.some(w => w.id === waveform.id)) return prev;
+      return [...prev, { ...waveform, custom: true }];
+    });
+  }, []);
+
   // Remove a custom waveform
   const removeWaveform = useCallback((id: string) => {
     setCustomWaveforms(prev => prev.filter(w => w.id !== id));
@@ -60,6 +67,7 @@ export function useWaveforms() {
     builtinWaveforms: BUILTIN_WAVEFORMS,
     customWaveforms,
     importPulseFile,
+    addRemoteWaveform,
     removeWaveform,
     renameWaveform,
     getWaveform,

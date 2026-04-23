@@ -29,6 +29,16 @@ export type CmdAction =
   | 'shake'
   | 'beep';
 
+export interface WaveformTransfer {
+  waveform: {
+    id: string;
+    name: string;
+    description: string;
+    frames: [number, number][];
+  };
+  fromName: string;
+}
+
 export interface MemberState {
   peerId: string;
   displayName: string;

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap } from 'lucide-react';
-import type { CmdAction, MemberState } from '../lib/protocol';
+import type { CmdAction, MemberState, WaveformTransfer } from '../lib/protocol';
 
 function useRepeatAction(action: () => void, initialDelay = 400, repeatInterval = 100) {
   const timerRef = useRef<number | null>(null);
@@ -41,12 +41,14 @@ function RepeatButton({ onAction, className, children }: {
     >{children}</button>
   );
 }
-import type { WaveformDefinition } from '../lib/waveforms';
+import { parsePulseFile, type WaveformDefinition } from '../lib/waveforms';
 
 interface MemberControlProps {
   peerId: string;
   member: MemberState | undefined;
   onSendCommand: (target: string, action: CmdAction, data?: string) => void;
+  onSendWaveform: (targetPeerId: string, transfer: WaveformTransfer) => void;
+  displayName: string;
   onBack: () => void;
   waveforms: WaveformDefinition[];
   onImportWaveform: (file: File) => Promise<string | null>;
@@ -126,7 +128,7 @@ function FireCircle({ label, strength, maxStrength, disabled, firing, onStrength
 }
 
 export function MemberControl({
-  peerId, member, onSendCommand, onBack,
+  peerId, member, onSendCommand, onSendWaveform, displayName, onBack,
   waveforms, onImportWaveform, onRemoveWaveform,
   isSelf, limitA, limitB, onSetLimit,
 }: MemberControlProps) {
@@ -138,6 +140,7 @@ export function MemberControl({
   const [firingA, setFiringA] = useState(false);
   const [firingB, setFiringB] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const remoteFileInputRef = useRef<HTMLInputElement>(null);
 
   const name = member?.displayName || peerId.slice(0, 8);
   const strengthA = member?.strengthA ?? 0;
@@ -173,6 +176,26 @@ export function MemberControl({
     if (!file) return;
     const error = await onImportWaveform(file);
     if (error) window.alert(error);
+    e.target.value = '';
+  }
+
+  async function handleRemoteImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const waveform = parsePulseFile(text);
+    if (!waveform) {
+      window.alert('无法解析文件格式');
+      e.target.value = '';
+      return;
+    }
+    const name = file.name.replace(/\.pulse$/i, '') || '导入波形';
+    waveform.name = name;
+    waveform.id = `custom-${name.replace(/\W/g, '')}-${Date.now().toString(36)}`;
+    onSendWaveform(peerId, {
+      waveform: { id: waveform.id, name: waveform.name, description: waveform.description, frames: waveform.frames },
+      fromName: displayName,
+    });
     e.target.value = '';
   }
 
@@ -306,19 +329,38 @@ export function MemberControl({
         <div className="mt-3">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs text-[var(--text-faint)]">波形</p>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
-            >
-              <Upload size={12} /> 导入 .pulse
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pulse"
-              className="hidden"
-              onChange={handleFileImport}
-            />
+            <div className="flex items-center gap-1">
+              {!isSelf && (
+                <>
+                  <button
+                    onClick={() => remoteFileInputRef.current?.click()}
+                    className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--success)] transition-colors hover:bg-[var(--success-soft)]"
+                  >
+                    <Upload size={12} /> 为对方导入
+                  </button>
+                  <input
+                    ref={remoteFileInputRef}
+                    type="file"
+                    accept=".pulse"
+                    className="hidden"
+                    onChange={handleRemoteImport}
+                  />
+                </>
+              )}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
+              >
+                <Upload size={12} /> 导入 .pulse
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pulse"
+                className="hidden"
+                onChange={handleFileImport}
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-4 gap-2">

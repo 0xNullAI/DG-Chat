@@ -7,7 +7,7 @@ import { RoomEntry } from './components/RoomEntry';
 import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { Bluetooth, BluetoothOff, LogOut, Sun, Moon } from 'lucide-react';
-import type { DeviceCommand, MemberState, CmdAction } from './lib/protocol';
+import type { DeviceCommand, MemberState, CmdAction, WaveformTransfer } from './lib/protocol';
 
 export default function App() {
   const [displayName, setDisplayName] = useState(() =>
@@ -44,6 +44,17 @@ export default function App() {
   useEffect(() => {
     peerRoom.setCommandHandler(handleCommand);
   }, [peerRoom.setCommandHandler, handleCommand]);
+
+  const handleWaveform = useCallback((transfer: WaveformTransfer, _peerId: string) => {
+    waveforms.addRemoteWaveform({
+      ...transfer.waveform,
+      custom: true,
+    });
+  }, [waveforms.addRemoteWaveform]);
+
+  useEffect(() => {
+    peerRoom.setWaveformHandler(handleWaveform);
+  }, [peerRoom.setWaveformHandler, handleWaveform]);
 
   const sendCommand = useCallback((target: string, action: CmdAction, data?: string) => {
     const cmd: DeviceCommand = { target, action, data };
@@ -191,6 +202,8 @@ export default function App() {
             members={peerRoom.members}
             peers={peerRoom.peers}
             onSendCommand={sendCommand}
+            onSendWaveform={peerRoom.sendWaveform}
+            displayName={displayName}
             roomId={peerRoom.roomId}
             waveforms={waveforms.allWaveforms}
             onImportWaveform={waveforms.importPulseFile}
