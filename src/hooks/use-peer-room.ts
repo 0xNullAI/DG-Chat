@@ -8,10 +8,8 @@ type ActionSender = (data: any, targetPeers?: string | string[]) => void;
 export type RoomStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
 export const DEFAULT_RELAYS = [
-  'wss://broker-cn.emqx.io:8084/mqtt',
   'wss://broker.emqx.io:8084/mqtt',
-  'wss://broker.hivemq.com:8884/mqtt',
-  'wss://test.mosquitto.org:8081/mqtt',
+  'wss://broker-cn.emqx.io:8084/mqtt',
   'wss://public:public@public.cloud.shiftr.io',
 ];
 

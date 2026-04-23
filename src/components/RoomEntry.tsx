@@ -15,11 +15,11 @@ interface RelayInfo {
 function testRelay(url: string): Promise<{ ok: boolean; latency: number }> {
   return new Promise((resolve) => {
     const start = performance.now();
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(url, ['mqtt']);
     const timer = setTimeout(() => {
       ws.close();
       resolve({ ok: false, latency: -1 });
-    }, 5000);
+    }, 6000);
     ws.onopen = () => {
       clearTimeout(timer);
       const latency = Math.round(performance.now() - start);

@@ -99,9 +99,15 @@ export default function App() {
               {peerRoom.roomId}
             </span>
           )}
-          <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs text-[var(--accent)]">
-            {peerRoom.peers.length + 1} 人在线
-          </span>
+          {peerRoom.peers.length > 0 ? (
+            <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs text-[var(--accent)]">
+              {peerRoom.peers.length + 1} 人在线
+            </span>
+          ) : (
+            <span className="rounded-full bg-[var(--bg-soft)] px-2 py-0.5 text-xs text-[var(--text-faint)]">
+              等待其他成员加入...
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           {/* 主题切换 */}
