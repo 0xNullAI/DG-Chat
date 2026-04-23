@@ -119,12 +119,9 @@ export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string
       const dev = ctx?.device;
       if (!dev) return '未连接蓝牙设备';
       try {
-        const { channel, strength, waveId } = JSON.parse(cmd.data!) as { channel: 'A' | 'B'; strength: number; waveId: string };
-        const waveform = ctx?.getWaveform?.(waveId);
-        if (!waveform) return `波形 ${waveId} 未找到`;
-        dev.setStrength(channel, strength);
-        dev.setWave(channel, waveform.frames, waveform.id, true);
-        return `${channel} 开火 强度${strength}`;
+        const { channel, targetStrength } = JSON.parse(cmd.data!) as { channel: 'A' | 'B'; targetStrength: number };
+        dev.setStrength(channel, targetStrength);
+        return `${channel} 开火 强度${targetStrength}`;
       } catch {
         return '开火参数解析失败';
       }
@@ -135,7 +132,6 @@ export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string
       if (!dev) return '未连接蓝牙设备';
       try {
         const { channel, restoreStrength } = JSON.parse(cmd.data!) as { channel: 'A' | 'B'; restoreStrength: number };
-        dev.stopWave(channel);
         dev.setStrength(channel, restoreStrength);
         return `${channel} 开火停止`;
       } catch {

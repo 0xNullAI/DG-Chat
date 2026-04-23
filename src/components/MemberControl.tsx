@@ -93,8 +93,8 @@ export function MemberControl({
   const [waveTab, setWaveTab] = useState<'A' | 'B'>('A');
   const [selectedWaveA, setSelectedWaveA] = useState<string | null>(member?.waveA ?? null);
   const [selectedWaveB, setSelectedWaveB] = useState<string | null>(member?.waveB ?? null);
-  const [fireStrA, setFireStrA] = useState(30);
-  const [fireStrB, setFireStrB] = useState(30);
+  const [fireStrA, setFireStrA] = useState(0);
+  const [fireStrB, setFireStrB] = useState(0);
   const [firingA, setFiringA] = useState(false);
   const [firingB, setFiringB] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -313,19 +313,18 @@ export function MemberControl({
 
         {/* ==================== Fire Buttons ==================== */}
         <div className="mt-5">
-          <p className="mb-3 text-center text-xs text-[var(--text-faint)]">一键开火（按住触发，松开停止）</p>
+          <p className="mb-3 text-center text-xs text-[var(--text-faint)]">一键开火（按住增加强度，松开恢复）</p>
           <div className="flex items-center justify-center gap-8">
             <FireCircle
               label="A"
               strength={fireStrA}
               maxStrength={limitA}
-              disabled={!selectedWaveA}
+              disabled={false}
               firing={firingA}
               onStrengthChange={setFireStrA}
               onFireStart={() => {
-                if (!selectedWaveA) return;
                 setFiringA(true);
-                onSendCommand(peerId, 'fire', JSON.stringify({ channel: 'A', strength: fireStrA, waveId: selectedWaveA }));
+                onSendCommand(peerId, 'fire', JSON.stringify({ channel: 'A', targetStrength: strengthA + fireStrA }));
               }}
               onFireStop={() => {
                 setFiringA(false);
@@ -336,13 +335,12 @@ export function MemberControl({
               label="B"
               strength={fireStrB}
               maxStrength={limitB}
-              disabled={!selectedWaveB}
+              disabled={false}
               firing={firingB}
               onStrengthChange={setFireStrB}
               onFireStart={() => {
-                if (!selectedWaveB) return;
                 setFiringB(true);
-                onSendCommand(peerId, 'fire', JSON.stringify({ channel: 'B', strength: fireStrB, waveId: selectedWaveB }));
+                onSendCommand(peerId, 'fire', JSON.stringify({ channel: 'B', targetStrength: strengthB + fireStrB }));
               }}
               onFireStop={() => {
                 setFiringB(false);

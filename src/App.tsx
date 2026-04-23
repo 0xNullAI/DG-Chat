@@ -161,18 +161,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* 诊断面板 */}
-      {peerRoom.debugLog.length > 0 && (
-        <div className="shrink-0 border-b border-[var(--surface-border)] bg-[var(--bg)] px-3 py-2 max-h-40 overflow-y-auto">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-medium text-[var(--text-faint)]">连接诊断</span>
-          </div>
-          {peerRoom.debugLog.map((line, i) => (
-            <div key={i} className="text-[11px] leading-relaxed text-[var(--text-soft)] font-mono">{line}</div>
-          ))}
-        </div>
-      )}
-
       {/* 手机 Tab 栏 */}
       <div className="flex shrink-0 border-b border-[var(--surface-border)] bg-[var(--bg-elevated)] lg:hidden">
         <button
