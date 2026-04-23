@@ -44,7 +44,7 @@ interface RoomEntryProps {
 export function RoomEntry({ displayName, onNameChange, onJoin, status, error }: RoomEntryProps) {
   const [roomCode, setRoomCode] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('room') ?? '';
+    return params.get('room') ?? '0xNullAI';
   });
   const [showRelays, setShowRelays] = useState(false);
   const [relays, setRelays] = useState<RelayInfo[]>(() =>
