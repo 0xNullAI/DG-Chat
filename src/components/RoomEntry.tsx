@@ -44,7 +44,7 @@ interface RoomEntryProps {
 export function RoomEntry({ displayName, onNameChange, onJoin, status, error }: RoomEntryProps) {
   const [roomCode, setRoomCode] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('room') ?? '0xNullAI';
+    return params.get('room') ?? '';
   });
   const [showRelays, setShowRelays] = useState(false);
   const [relays, setRelays] = useState<RelayInfo[]>(() =>
@@ -87,8 +87,9 @@ export function RoomEntry({ displayName, onNameChange, onJoin, status, error }: 
   }
 
   function joinRoom() {
-    if (!displayName.trim() || !roomCode.trim()) return;
-    onJoin(roomCode.trim(), getEnabledRelayUrls());
+    const code = roomCode.trim() || '0xNullAI';
+    if (!displayName.trim()) return;
+    onJoin(code, getEnabledRelayUrls());
   }
 
   function toggleRelay(url: string) {
@@ -159,14 +160,14 @@ export function RoomEntry({ displayName, onNameChange, onJoin, status, error }: 
             value={roomCode}
             onChange={e => setRoomCode(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && joinRoom()}
-            placeholder="输入房间号"
+            placeholder="0xNullAI"
             disabled={connecting}
             className="flex-1 rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] outline-none focus:border-[var(--accent)] transition-colors disabled:opacity-50"
             style={{ fontSize: '16px' }}
           />
           <button
             onClick={joinRoom}
-            disabled={!displayName.trim() || !roomCode.trim() || connecting || enabledCount === 0}
+            disabled={!displayName.trim() || connecting || enabledCount === 0}
             className="flex items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-[var(--button-text)] transition-opacity hover:opacity-90 disabled:opacity-40"
           >
             {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
