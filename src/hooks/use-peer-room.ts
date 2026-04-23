@@ -7,6 +7,17 @@ type ActionSender = (data: any, targetPeers?: string | string[]) => void;
 
 export type RoomStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
+export const DEFAULT_RELAYS = [
+  'wss://relay.nosflare.com',
+  'wss://relay.primal.net',
+  'wss://purplerelay.com',
+  'wss://relay.mostr.pub',
+  'wss://relay.nostr.net',
+  'wss://relay.nostr.place',
+  'wss://relay.angor.io',
+  'wss://nos.lol',
+];
+
 export function usePeerRoom(displayName: string) {
   const [status, setStatus] = useState<RoomStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -25,8 +36,10 @@ export function usePeerRoom(displayName: string) {
     onCommandRef.current = handler;
   }, []);
 
-  const join = useCallback((roomCode: string) => {
+  const join = useCallback((roomCode: string, relayUrls?: string[]) => {
     if (roomRef.current) return;
+
+    const relays = relayUrls && relayUrls.length > 0 ? relayUrls : DEFAULT_RELAYS;
 
     setStatus('connecting');
     setError(null);
@@ -34,17 +47,8 @@ export function usePeerRoom(displayName: string) {
     try {
       const room = joinRoom({
         appId: 'dg-chat-v1',
-        relayUrls: [
-          'wss://relay.nosflare.com',
-          'wss://relay.primal.net',
-          'wss://purplerelay.com',
-          'wss://relay.mostr.pub',
-          'wss://relay.nostr.net',
-          'wss://relay.nostr.place',
-          'wss://relay.angor.io',
-          'wss://nos.lol',
-        ],
-        relayRedundancy: 8,
+        relayUrls: relays,
+        relayRedundancy: relays.length,
       }, roomCode);
       roomRef.current = room;
       setRoomId(roomCode);

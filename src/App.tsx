@@ -81,7 +81,7 @@ export default function App() {
       <RoomEntry
         displayName={displayName}
         onNameChange={setDisplayName}
-        onJoin={peerRoom.join}
+        onJoin={(code, relays) => peerRoom.join(code, relays)}
         status={peerRoom.status}
         error={peerRoom.error}
       />
