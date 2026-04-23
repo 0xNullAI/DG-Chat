@@ -124,6 +124,49 @@ export function usePeerRoom(displayName: string) {
         }
       }, 3000);
 
+      // Direct MQTT pub/sub test — bypass Trystero to verify broker messaging works
+      import('mqtt').then(({ default: mqtt }) => {
+        const testTopic = `dg-chat-ping/${roomCode}`;
+        const myId = selfId;
+        log(`MQTT ping test: topic="${testTopic}", id=${myId.slice(0, 8)}...`);
+
+        const client = mqtt.connect(relays[0]);
+        client.on('connect', () => {
+          log(`Ping test: connected to ${relays[0]}`);
+          client.subscribe(testTopic, (err) => {
+            if (err) { log(`Ping test: subscribe error: ${err.message}`); return; }
+            log('Ping test: subscribed, publishing...');
+            client.publish(testTopic, JSON.stringify({ id: myId, t: Date.now() }));
+          });
+        });
+        client.on('message', (_topic: string, payload: Buffer) => {
+          try {
+            const data = JSON.parse(payload.toString());
+            if (data.id === myId) {
+              log('Ping test: ✅ received own message (broker echo works)');
+            } else {
+              log(`Ping test: ✅✅ received OTHER peer: ${data.id.slice(0, 8)}... — MQTT messaging works!`);
+            }
+          } catch { /* ignore */ }
+        });
+        client.on('error', (err: Error) => {
+          log(`Ping test: ❌ error: ${err.message}`);
+        });
+
+        // Republish every 3s for 30s
+        let count = 0;
+        const interval = setInterval(() => {
+          count++;
+          if (count > 10 || !roomRef.current) {
+            clearInterval(interval);
+            client.end();
+            if (count > 10) log('Ping test: stopped after 30s');
+            return;
+          }
+          client.publish(testTopic, JSON.stringify({ id: myId, t: Date.now() }));
+        }, 3000);
+      }).catch(e => log(`MQTT import error: ${e}`));
+
     } catch (err) {
       console.error('Failed to join room:', err);
       const msg = err instanceof Error ? err.message : String(err);
