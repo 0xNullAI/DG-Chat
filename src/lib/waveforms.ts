@@ -1,3 +1,5 @@
+import { strFromU8, unzipSync } from 'fflate';
+
 // 波形帧：[编码频率, 强度(0-100)]
 export type WaveFrame = [number, number];
 
@@ -73,28 +75,37 @@ const FREQ_DATASET = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 50
 const DURATION_DATASET = [1, 2, 3, 4, 5, 8, 10, 15, 20, 30, 40, 50, 60];
 
 export function parsePulseFile(content: string): WaveformDefinition | null {
-  const prefix = 'Dungeonlab+pulse:';
-  if (!content.startsWith(prefix)) return null;
+  const trimmed = content.trim().replace(/^﻿/, '');
+  if (!/^Dungeonlab\+pulse:/i.test(trimmed)) return null;
 
-  const body = content.slice(prefix.length);
-  const sections = body.split('+section+');
+  const cleanData = trimmed.replace(/^Dungeonlab\+pulse:/i, '');
+  const sectionParts = cleanData.split('+section+');
+  if (sectionParts.length === 0 || !sectionParts[0]) return null;
+
+  const firstPart = sectionParts[0];
+  const equalIndex = firstPart.indexOf('=');
+  if (equalIndex === -1) return null;
+
+  const firstSectionData = firstPart.substring(equalIndex + 1);
+  const allSectionData = [firstSectionData, ...sectionParts.slice(1)];
+
   const allFrames: WaveFrame[] = [];
 
-  for (const section of sections) {
-    const parts = section.split('=');
-    if (parts.length < 2) continue;
+  for (const sectionData of allSectionData) {
+    if (!sectionData) continue;
 
-    const headerStr = parts[0]!;
-    const shapeStr = parts[1]!;
+    const slashIndex = sectionData.indexOf('/');
+    if (slashIndex === -1) continue;
 
-    const headerParts = headerStr.split(',');
-    if (headerParts.length < 5) continue;
+    const headerPart = sectionData.substring(0, slashIndex);
+    const shapePart = sectionData.substring(slashIndex + 1);
+    const headerValues = headerPart.split(',');
 
-    const freqRange1Index = parseInt(headerParts[0]!, 10);
-    const freqRange2Index = parseInt(headerParts[1]!, 10);
-    const durationIndex = parseInt(headerParts[2]!, 10);
-    const frequencyMode = parseInt(headerParts[3]!, 10);
-    const enabled = parseInt(headerParts[4]!, 10);
+    const freqRange1Index = Number(headerValues[0]) || 0;
+    const freqRange2Index = Number(headerValues[1]) || 0;
+    const durationIndex = Number(headerValues[2]) || 0;
+    const freqMode = Number(headerValues[3]) || 1;
+    const enabled = headerValues[4] !== '0';
 
     if (!enabled) continue;
 
@@ -102,29 +113,46 @@ export function parsePulseFile(content: string): WaveformDefinition | null {
     const freq2 = FREQ_DATASET[freqRange2Index] ?? 10;
     const duration = DURATION_DATASET[durationIndex] ?? 1;
 
-    const intensities = shapeStr.split(',').map(s => {
-      const val = parseInt(s.split('-')[0]!, 10);
-      return isNaN(val) ? 0 : Math.max(0, Math.min(100, val));
-    });
+    const intensities: number[] = [];
+    for (const item of shapePart.split(',')) {
+      if (!item) continue;
+      const [strengthStr] = item.split('-');
+      const strength = Math.round(Number(strengthStr) || 0);
+      intensities.push(Math.max(0, Math.min(100, strength)));
+    }
 
-    if (intensities.length === 0) continue;
+    if (intensities.length < 2) continue;
 
-    // Generate frames based on frequency mode
-    for (let i = 0; i < intensities.length * duration; i++) {
-      const intensityIndex = Math.floor(i / duration) % intensities.length;
-      const intensity = intensities[intensityIndex]!;
+    const shapeCount = intensities.length;
+    const pulseElementCount = Math.max(1, Math.ceil(duration / shapeCount));
+    const actualDuration = pulseElementCount * shapeCount;
 
-      let freq: number;
-      if (frequencyMode === 1) {
-        // constant
-        freq = freq1;
-      } else {
-        // sweep: interpolate between freq1 and freq2
-        const t = intensities.length > 1 ? intensityIndex / (intensities.length - 1) : 0;
-        freq = Math.round(freq1 + (freq2 - freq1) * t);
+    for (let elementIndex = 0; elementIndex < pulseElementCount; elementIndex++) {
+      for (let shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++) {
+        const strength = intensities[shapeIndex]!;
+        const currentTime = elementIndex * shapeCount + shapeIndex;
+        const sectionProgress = currentTime / actualDuration;
+        const elementProgress = shapeIndex / shapeCount;
+
+        let rawFreq: number;
+        switch (freqMode) {
+          case 2:
+            rawFreq = freq1 + (freq2 - freq1) * sectionProgress;
+            break;
+          case 3:
+            rawFreq = freq1 + (freq2 - freq1) * elementProgress;
+            break;
+          case 4: {
+            const progress = pulseElementCount > 1 ? elementIndex / (pulseElementCount - 1) : 0;
+            rawFreq = freq1 + (freq2 - freq1) * progress;
+            break;
+          }
+          default:
+            rawFreq = freq1;
+        }
+
+        allFrames.push([encodeFreq(rawFreq), strength]);
       }
-
-      allFrames.push([encodeFreq(freq), intensity]);
     }
   }
 
@@ -137,6 +165,37 @@ export function parsePulseFile(content: string): WaveformDefinition | null {
     frames: allFrames,
     custom: true,
   };
+}
+
+export async function parseImportFile(file: File): Promise<WaveformDefinition[]> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const results: WaveformDefinition[] = [];
+
+  if (/\.zip$/i.test(file.name)) {
+    const entries = unzipSync(bytes);
+    for (const [entryName, content] of Object.entries(entries)) {
+      if (!/\.pulse$/i.test(entryName)) continue;
+      const text = strFromU8(content);
+      const wf = parsePulseFile(text);
+      if (wf) {
+        const name = entryName.replace(/^.*[\\/]/, '').replace(/\.pulse$/i, '') || '导入波形';
+        wf.name = name;
+        wf.id = `custom-${name.replace(/\W/g, '')}-${Date.now().toString(36)}-${results.length}`;
+        results.push(wf);
+      }
+    }
+  } else {
+    const text = new TextDecoder().decode(bytes);
+    const wf = parsePulseFile(text);
+    if (wf) {
+      const name = file.name.replace(/\.pulse$/i, '') || '导入波形';
+      wf.name = name;
+      wf.id = `custom-${name.replace(/\W/g, '')}-${Date.now().toString(36)}`;
+      results.push(wf);
+    }
+  }
+
+  return results;
 }
 
 // localStorage persistence for custom waveforms

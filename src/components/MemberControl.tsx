@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap } from 'lucide-react';
+import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap, Repeat, Repeat1, Shuffle, Timer } from 'lucide-react';
 import type { CmdAction, MemberState, WaveformTransfer } from '../lib/protocol';
 
 function useRepeatAction(action: () => void, initialDelay = 400, repeatInterval = 100) {
@@ -41,7 +41,7 @@ function RepeatButton({ onAction, className, children }: {
     >{children}</button>
   );
 }
-import { parsePulseFile, type WaveformDefinition } from '../lib/waveforms';
+import { parseImportFile, type WaveformDefinition } from '../lib/waveforms';
 
 interface MemberControlProps {
   peerId: string;
@@ -132,15 +132,27 @@ export function MemberControl({
   waveforms, onImportWaveform, onRemoveWaveform,
   isSelf, limitA, limitB, onSetLimit,
 }: MemberControlProps) {
+  type PlayMode = 'single' | 'list' | 'random';
+
   const [waveTab, setWaveTab] = useState<'A' | 'B'>('A');
-  const [selectedWaveA, setSelectedWaveA] = useState<string | null>(member?.waveA ?? null);
-  const [selectedWaveB, setSelectedWaveB] = useState<string | null>(member?.waveB ?? null);
+  const [playlistA, setPlaylistA] = useState<string[]>(() => member?.waveA ? [member.waveA] : []);
+  const [playlistB, setPlaylistB] = useState<string[]>(() => member?.waveB ? [member.waveB] : []);
+  const [playModeA, setPlayModeA] = useState<PlayMode>('single');
+  const [playModeB, setPlayModeB] = useState<PlayMode>('single');
+  const [intervalA, setIntervalA] = useState(30);
+  const [intervalB, setIntervalB] = useState(30);
+  const [currentIndexA, setCurrentIndexA] = useState(0);
+  const [currentIndexB, setCurrentIndexB] = useState(0);
   const [fireStrA, setFireStrA] = useState(0);
   const [fireStrB, setFireStrB] = useState(0);
   const [firingA, setFiringA] = useState(false);
   const [firingB, setFiringB] = useState(false);
+  const preFireStrA = useRef(0);
+  const preFireStrB = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const remoteFileInputRef = useRef<HTMLInputElement>(null);
+  const switchTimerA = useRef<number | null>(null);
+  const switchTimerB = useRef<number | null>(null);
 
   const name = member?.displayName || peerId.slice(0, 8);
   const strengthA = member?.strengthA ?? 0;
@@ -148,6 +160,13 @@ export function MemberControl({
   const deviceConnected = member?.deviceConnected ?? false;
   const playingA = !!member?.waveA;
   const playingB = !!member?.waveB;
+
+  const currentPlaylist = waveTab === 'A' ? playlistA : playlistB;
+  const currentPlayMode = waveTab === 'A' ? playModeA : playModeB;
+  const setCurrentPlayMode = waveTab === 'A' ? setPlayModeA : setPlayModeB;
+  const currentInterval = waveTab === 'A' ? intervalA : intervalB;
+  const setCurrentInterval = waveTab === 'A' ? setIntervalA : setIntervalB;
+  const activeWaveId = waveTab === 'A' ? member?.waveA : member?.waveB;
 
   const throttleRef = useRef<Record<string, number>>({});
   const adjustStrength = useCallback((channel: 'A' | 'B', value: number) => {
@@ -160,16 +179,70 @@ export function MemberControl({
     onSendCommand(peerId, 'adjust_strength', JSON.stringify({ channel, value: clamped }));
   }, [peerId, onSendCommand, limitA, limitB]);
 
-  const selectedWave = waveTab === 'A' ? selectedWaveA : selectedWaveB;
+  function toggleWaveform(w: WaveformDefinition) {
+    const setter = waveTab === 'A' ? setPlaylistA : setPlaylistB;
+    const setIdx = waveTab === 'A' ? setCurrentIndexA : setCurrentIndexB;
+    const playlist = waveTab === 'A' ? playlistA : playlistB;
+    const isPlaying = waveTab === 'A' ? playingA : playingB;
 
-  function selectWaveform(w: WaveformDefinition) {
-    if (waveTab === 'A') {
-      setSelectedWaveA(w.id);
+    if (playlist.includes(w.id)) {
+      const removedIdx = playlist.indexOf(w.id);
+      setter(prev => prev.filter(id => id !== w.id));
+      if (removedIdx <= (waveTab === 'A' ? currentIndexA : currentIndexB)) {
+        setIdx(prev => Math.max(0, prev - 1));
+      }
     } else {
-      setSelectedWaveB(w.id);
+      setter(prev => {
+        const newList = [...prev, w.id];
+        setIdx(newList.length - 1);
+        return newList;
+      });
+      if (isPlaying) {
+        onSendCommand(peerId, 'change_wave', JSON.stringify({ channel: waveTab, waveId: w.id }));
+      }
     }
-    onSendCommand(peerId, 'change_wave', JSON.stringify({ channel: waveTab, waveId: w.id }));
   }
+
+  function getNextWaveId(playlist: string[], currentIdx: number, mode: PlayMode): { id: string; idx: number } {
+    if (playlist.length === 0) return { id: '', idx: 0 };
+    if (mode === 'single') return { id: playlist[currentIdx % playlist.length]!, idx: currentIdx };
+    if (mode === 'random') {
+      const idx = Math.floor(Math.random() * playlist.length);
+      return { id: playlist[idx]!, idx };
+    }
+    const nextIdx = (currentIdx + 1) % playlist.length;
+    return { id: playlist[nextIdx]!, idx: nextIdx };
+  }
+
+  const switchWave = useCallback((channel: 'A' | 'B') => {
+    const playlist = channel === 'A' ? playlistA : playlistB;
+    const mode = channel === 'A' ? playModeA : playModeB;
+    const currentIdx = channel === 'A' ? currentIndexA : currentIndexB;
+    const setIdx = channel === 'A' ? setCurrentIndexA : setCurrentIndexB;
+
+    if (playlist.length <= 1 && mode === 'single') return;
+
+    const { id, idx } = getNextWaveId(playlist, currentIdx, mode);
+    if (!id) return;
+    setIdx(idx);
+    onSendCommand(peerId, 'change_wave', JSON.stringify({ channel, waveId: id }));
+  }, [playlistA, playlistB, playModeA, playModeB, currentIndexA, currentIndexB, peerId, onSendCommand]);
+
+  useEffect(() => {
+    if (switchTimerA.current) { clearInterval(switchTimerA.current); switchTimerA.current = null; }
+    if (playingA && playlistA.length > 1 && playModeA !== 'single') {
+      switchTimerA.current = window.setInterval(() => switchWave('A'), intervalA * 1000);
+    }
+    return () => { if (switchTimerA.current) clearInterval(switchTimerA.current); };
+  }, [playingA, playlistA.length, playModeA, intervalA, switchWave]);
+
+  useEffect(() => {
+    if (switchTimerB.current) { clearInterval(switchTimerB.current); switchTimerB.current = null; }
+    if (playingB && playlistB.length > 1 && playModeB !== 'single') {
+      switchTimerB.current = window.setInterval(() => switchWave('B'), intervalB * 1000);
+    }
+    return () => { if (switchTimerB.current) clearInterval(switchTimerB.current); };
+  }, [playingB, playlistB.length, playModeB, intervalB, switchWave]);
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -182,20 +255,22 @@ export function MemberControl({
   async function handleRemoteImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    const waveform = parsePulseFile(text);
-    if (!waveform) {
-      window.alert('无法解析文件格式');
-      e.target.value = '';
-      return;
+    try {
+      const waveformList = await parseImportFile(file);
+      if (waveformList.length === 0) {
+        window.alert('无法解析文件格式');
+        e.target.value = '';
+        return;
+      }
+      for (const wf of waveformList) {
+        onSendWaveform(peerId, {
+          waveform: { id: wf.id, name: wf.name, description: wf.description, frames: wf.frames },
+          fromName: displayName,
+        });
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '导入失败');
     }
-    const name = file.name.replace(/\.pulse$/i, '') || '导入波形';
-    waveform.name = name;
-    waveform.id = `custom-${name.replace(/\W/g, '')}-${Date.now().toString(36)}`;
-    onSendWaveform(peerId, {
-      waveform: { id: waveform.id, name: waveform.name, description: waveform.description, frames: waveform.frames },
-      fromName: displayName,
-    });
     e.target.value = '';
   }
 
@@ -235,17 +310,18 @@ export function MemberControl({
               onClick={() => {
                 if (playingA) {
                   onSendCommand(peerId, 'stop_wave', JSON.stringify({ channel: 'A' }));
-                } else if (selectedWaveA) {
-                  onSendCommand(peerId, 'start', JSON.stringify({ channel: 'A', waveId: selectedWaveA }));
+                } else if (playlistA.length > 0) {
+                  const startId = playlistA[currentIndexA % playlistA.length]!;
+                  onSendCommand(peerId, 'start', JSON.stringify({ channel: 'A', waveId: startId }));
                 }
               }}
-              disabled={!playingA && !selectedWaveA}
+              disabled={!playingA && playlistA.length === 0}
               className={`mb-2 flex h-9 w-9 items-center justify-center rounded-full transition-opacity hover:opacity-90 active:scale-95 disabled:opacity-30 ${
                 playingA
                   ? 'bg-[var(--danger)] text-white'
                   : 'bg-[var(--accent)] text-[var(--button-text)]'
               }`}
-              title={playingA ? '暂停 A' : selectedWaveA ? '启动 A' : '请先选择 A 通道波形'}
+              title={playingA ? '暂停 A' : playlistA.length > 0 ? '启动 A' : '请先选择 A 通道波形'}
             >
               {playingA ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
             </button>
@@ -265,17 +341,18 @@ export function MemberControl({
               onClick={() => {
                 if (playingB) {
                   onSendCommand(peerId, 'stop_wave', JSON.stringify({ channel: 'B' }));
-                } else if (selectedWaveB) {
-                  onSendCommand(peerId, 'start', JSON.stringify({ channel: 'B', waveId: selectedWaveB }));
+                } else if (playlistB.length > 0) {
+                  const startId = playlistB[currentIndexB % playlistB.length]!;
+                  onSendCommand(peerId, 'start', JSON.stringify({ channel: 'B', waveId: startId }));
                 }
               }}
-              disabled={!playingB && !selectedWaveB}
+              disabled={!playingB && playlistB.length === 0}
               className={`mb-2 flex h-9 w-9 items-center justify-center rounded-full transition-opacity hover:opacity-90 active:scale-95 disabled:opacity-30 ${
                 playingB
                   ? 'bg-[var(--danger)] text-white'
                   : 'bg-[var(--accent)] text-[var(--button-text)]'
               }`}
-              title={playingB ? '暂停 B' : selectedWaveB ? '启动 B' : '请先选择 B 通道波形'}
+              title={playingB ? '暂停 B' : playlistB.length > 0 ? '启动 B' : '请先选择 B 通道波形'}
             >
               {playingB ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
             </button>
@@ -325,10 +402,69 @@ export function MemberControl({
           </button>
         </div>
 
+        {/* ==================== Playlist Controls ==================== */}
+        <div className="mt-3 flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPlayMode('single')}
+              className={`flex h-7 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-[11px] transition-colors ${
+                currentPlayMode === 'single'
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'text-[var(--text-faint)] hover:text-[var(--text-soft)]'
+              }`}
+              title="单曲循环"
+            >
+              <Repeat1 size={13} /> 单曲
+            </button>
+            <button
+              onClick={() => setCurrentPlayMode('list')}
+              className={`flex h-7 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-[11px] transition-colors ${
+                currentPlayMode === 'list'
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'text-[var(--text-faint)] hover:text-[var(--text-soft)]'
+              }`}
+              title="列表循环"
+            >
+              <Repeat size={13} /> 列表
+            </button>
+            <button
+              onClick={() => setCurrentPlayMode('random')}
+              className={`flex h-7 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-[11px] transition-colors ${
+                currentPlayMode === 'random'
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'text-[var(--text-faint)] hover:text-[var(--text-soft)]'
+              }`}
+              title="随机播放"
+            >
+              <Shuffle size={13} /> 随机
+            </button>
+          </div>
+          {currentPlayMode !== 'single' && (
+            <div className="flex items-center gap-1.5">
+              <Timer size={12} className="text-[var(--text-faint)]" />
+              <select
+                value={currentInterval}
+                onChange={e => setCurrentInterval(Number(e.target.value))}
+                className="rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-1.5 py-0.5 text-[11px] text-[var(--text)] outline-none"
+              >
+                <option value={10}>10秒</option>
+                <option value={20}>20秒</option>
+                <option value={30}>30秒</option>
+                <option value={60}>1分钟</option>
+                <option value={120}>2分钟</option>
+                <option value={300}>5分钟</option>
+                <option value={600}>10分钟</option>
+              </select>
+            </div>
+          )}
+        </div>
+
         {/* ==================== Waveform Grid ==================== */}
         <div className="mt-3">
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs text-[var(--text-faint)]">波形</p>
+            <p className="text-xs text-[var(--text-faint)]">
+              波形{currentPlaylist.length > 0 ? ` (已选 ${currentPlaylist.length})` : ''}
+            </p>
             <div className="flex items-center gap-1">
               {!isSelf && (
                 <>
@@ -341,7 +477,7 @@ export function MemberControl({
                   <input
                     ref={remoteFileInputRef}
                     type="file"
-                    accept=".pulse"
+                    accept=".pulse,.zip"
                     className="hidden"
                     onChange={handleRemoteImport}
                   />
@@ -351,12 +487,12 @@ export function MemberControl({
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
               >
-                <Upload size={12} /> 导入 .pulse
+                <Upload size={12} /> 导入波形
               </button>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pulse"
+                accept=".pulse,.zip"
                 className="hidden"
                 onChange={handleFileImport}
               />
@@ -364,32 +500,44 @@ export function MemberControl({
           </div>
 
           <div className="grid grid-cols-4 gap-2">
-            {waveforms.map(w => (
-              <button
-                key={w.id}
-                onClick={() => selectWaveform(w)}
-                className={`wave-card group ${selectedWave === w.id ? 'selected' : ''}`}
-              >
-                <svg viewBox="0 0 40 20" className="wave-icon">
-                  <path
-                    d="M2 10 Q8 2 14 10 Q20 18 26 10 Q32 2 38 10"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <span className="wave-card-name">{w.name}</span>
-                {w.custom && (
-                  <button
-                    onClick={e => { e.stopPropagation(); onRemoveWaveform(w.id); }}
-                    className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white opacity-0 transition-opacity group-hover:opacity-100"
-                  >
-                    <Trash2 size={8} />
-                  </button>
-                )}
-              </button>
-            ))}
+            {waveforms.map(w => {
+              const inPlaylist = currentPlaylist.includes(w.id);
+              const isActive = activeWaveId === w.id;
+              return (
+                <button
+                  key={w.id}
+                  onClick={() => toggleWaveform(w)}
+                  className={`wave-card group ${
+                    isActive ? 'selected' :
+                    inPlaylist ? 'wave-card-queued' : ''
+                  }`}
+                >
+                  <svg viewBox="0 0 40 20" className="wave-icon">
+                    <path
+                      d="M2 10 Q8 2 14 10 Q20 18 26 10 Q32 2 38 10"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <span className="wave-card-name">{w.name}</span>
+                  {inPlaylist && (
+                    <span className="absolute top-0.5 right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--accent)] text-[8px] text-white font-bold">
+                      {currentPlaylist.indexOf(w.id) + 1}
+                    </span>
+                  )}
+                  {w.custom && !inPlaylist && (
+                    <button
+                      onClick={e => { e.stopPropagation(); onRemoveWaveform(w.id); }}
+                      className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    >
+                      <Trash2 size={8} />
+                    </button>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -405,12 +553,13 @@ export function MemberControl({
               firing={firingA}
               onStrengthChange={setFireStrA}
               onFireStart={() => {
+                preFireStrA.current = strengthA;
                 setFiringA(true);
                 onSendCommand(peerId, 'fire', JSON.stringify({ channel: 'A', targetStrength: strengthA + fireStrA }));
               }}
               onFireStop={() => {
                 setFiringA(false);
-                onSendCommand(peerId, 'fire_stop', JSON.stringify({ channel: 'A', restoreStrength: strengthA }));
+                onSendCommand(peerId, 'fire_stop', JSON.stringify({ channel: 'A', restoreStrength: preFireStrA.current }));
               }}
             />
             <FireCircle
@@ -421,12 +570,13 @@ export function MemberControl({
               firing={firingB}
               onStrengthChange={setFireStrB}
               onFireStart={() => {
+                preFireStrB.current = strengthB;
                 setFiringB(true);
                 onSendCommand(peerId, 'fire', JSON.stringify({ channel: 'B', targetStrength: strengthB + fireStrB }));
               }}
               onFireStop={() => {
                 setFiringB(false);
-                onSendCommand(peerId, 'fire_stop', JSON.stringify({ channel: 'B', restoreStrength: strengthB }));
+                onSendCommand(peerId, 'fire_stop', JSON.stringify({ channel: 'B', restoreStrength: preFireStrB.current }));
               }}
             />
           </div>

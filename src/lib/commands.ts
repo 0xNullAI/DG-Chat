@@ -72,11 +72,14 @@ export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string
     }
 
     case 'change_wave': {
+      const dev = ctx?.device;
+      if (!dev) return '未连接蓝牙设备';
       try {
-        const { waveId } = JSON.parse(cmd.data!) as { channel: 'A' | 'B'; waveId: string };
+        const { channel, waveId } = JSON.parse(cmd.data!) as { channel: 'A' | 'B'; waveId: string };
         const waveform = ctx?.getWaveform?.(waveId);
         if (!waveform) return `波形 ${waveId} 未找到`;
-        return `波形已选择 ${waveform.name}`;
+        dev.setWave(channel, waveform.frames, waveform.id, true);
+        return `${channel} 通道波形已切换为 ${waveform.name}`;
       } catch {
         return '波形参数解析失败';
       }

@@ -44,7 +44,7 @@ export function WaveformPanel({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".pulse"
+            accept=".pulse,.zip"
             className="hidden"
             onChange={handleFileChange}
           />
@@ -90,7 +90,7 @@ export function WaveformPanel({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".pulse"
+            accept=".pulse,.zip"
             className="hidden"
             onChange={handleFileChange}
           />

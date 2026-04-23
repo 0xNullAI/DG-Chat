@@ -4,6 +4,7 @@ import { useDevice } from './hooks/use-device';
 import { useWaveforms } from './hooks/use-waveforms';
 import { executeCommand, type CommandContext } from './lib/commands';
 import { RoomEntry } from './components/RoomEntry';
+import { SafetyNotice, useSafetyAccepted } from './components/SafetyNotice';
 import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { Bluetooth, BluetoothOff, LogOut, Sun, Moon } from 'lucide-react';
@@ -18,6 +19,7 @@ export default function App() {
     document.documentElement.getAttribute('data-theme') ?? 'dark'
   );
 
+  const safety = useSafetyAccepted();
   const peerRoom = usePeerRoom(displayName);
   const device = useDevice();
   const waveforms = useWaveforms();
@@ -86,6 +88,10 @@ export default function App() {
   }, [peerRoom.connected, peerRoom.broadcastState, displayName,
       device.connected, device.strengthA, device.strengthB,
       device.waveIdA, device.waveIdB, device.battery]);
+
+  if (!safety.accepted) {
+    return <SafetyNotice onAccept={({ dontShowAgain }) => safety.accept(dontShowAgain)} />;
+  }
 
   if (!peerRoom.connected) {
     return (
@@ -206,7 +212,7 @@ export default function App() {
             displayName={displayName}
             roomId={peerRoom.roomId}
             waveforms={waveforms.allWaveforms}
-            onImportWaveform={waveforms.importPulseFile}
+            onImportWaveform={waveforms.importFile}
             onRemoveWaveform={waveforms.removeWaveform}
             selfState={{
               peerId: 'self',

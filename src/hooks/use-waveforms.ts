@@ -3,7 +3,7 @@ import {
   BUILTIN_WAVEFORMS,
   loadCustomWaveforms,
   saveCustomWaveforms,
-  parsePulseFile,
+  parseImportFile,
   type WaveformDefinition,
 } from '../lib/waveforms';
 
@@ -20,19 +20,15 @@ export function useWaveforms() {
     saveCustomWaveforms(customWaveforms);
   }, [customWaveforms]);
 
-  // Import from .pulse file
-  const importPulseFile = useCallback(async (file: File): Promise<string | null> => {
-    const text = await file.text();
-    const waveform = parsePulseFile(text);
-    if (!waveform) return '无法解析文件格式';
-
-    // Use filename (without extension) as name
-    const name = file.name.replace(/\.pulse$/i, '') || '导入波形';
-    waveform.name = name;
-    waveform.id = `custom-${name.replace(/\W/g, '')}-${Date.now().toString(36)}`;
-
-    setCustomWaveforms(prev => [...prev, waveform]);
-    return null; // no error
+  const importFile = useCallback(async (file: File): Promise<string | null> => {
+    try {
+      const waveforms = await parseImportFile(file);
+      if (waveforms.length === 0) return '无法解析文件格式';
+      setCustomWaveforms(prev => [...prev, ...waveforms]);
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : '导入失败';
+    }
   }, []);
 
   const addRemoteWaveform = useCallback((waveform: WaveformDefinition) => {
@@ -66,7 +62,7 @@ export function useWaveforms() {
     allWaveforms,
     builtinWaveforms: BUILTIN_WAVEFORMS,
     customWaveforms,
-    importPulseFile,
+    importFile,
     addRemoteWaveform,
     removeWaveform,
     renameWaveform,
