@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { joinRoom, type Room } from '@trystero-p2p/mqtt';
+import { joinRoom, selfId, getRelaySockets, type Room } from '@trystero-p2p/mqtt';
 import type { ChatMessage, DeviceCommand, MemberState, CmdAction } from '../lib/protocol';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,12 +20,20 @@ export function usePeerRoom(displayName: string) {
   const [peers, setPeers] = useState<string[]>([]);
   const [members, setMembers] = useState<Map<string, MemberState>>(new Map());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [debugLog, setDebugLog] = useState<string[]>([]);
 
   const roomRef = useRef<Room | null>(null);
   const sendChatRef = useRef<ActionSender | null>(null);
   const sendCommandRef = useRef<ActionSender | null>(null);
   const sendStateRef = useRef<ActionSender | null>(null);
   const onCommandRef = useRef<((cmd: DeviceCommand, peerId: string) => void) | null>(null);
+
+  const log = useCallback((msg: string) => {
+    const time = new Date().toLocaleTimeString();
+    const entry = `[${time}] ${msg}`;
+    console.log('[DG-Chat]', msg);
+    setDebugLog(prev => [...prev.slice(-49), entry]);
+  }, []);
 
   const setCommandHandler = useCallback((handler: (cmd: DeviceCommand, peerId: string) => void) => {
     onCommandRef.current = handler;
@@ -38,6 +46,8 @@ export function usePeerRoom(displayName: string) {
 
     setStatus('connecting');
     setError(null);
+    log(`My peer ID: ${selfId}`);
+    log(`Joining room "${roomCode}" via ${relays.length} brokers...`);
 
     try {
       const room = joinRoom({
@@ -48,6 +58,8 @@ export function usePeerRoom(displayName: string) {
       roomRef.current = room;
       setRoomId(roomCode);
 
+      log('joinRoom() returned, setting up channels...');
+
       const [sendChat, onChat] = room.makeAction('chat');
       const [sendCmd, onCmd] = room.makeAction('cmd');
       const [sendState, onState] = room.makeAction('state');
@@ -57,10 +69,12 @@ export function usePeerRoom(displayName: string) {
       sendStateRef.current = sendState;
 
       room.onPeerJoin((peerId: string) => {
+        log(`✅ Peer joined: ${peerId}`);
         setPeers(prev => [...prev, peerId]);
       });
 
       room.onPeerLeave((peerId: string) => {
+        log(`❌ Peer left: ${peerId}`);
         setPeers(prev => prev.filter(p => p !== peerId));
         setMembers(prev => {
           const next = new Map(prev);
@@ -89,13 +103,36 @@ export function usePeerRoom(displayName: string) {
       });
 
       setStatus('connected');
+      log('Room joined, waiting for peers...');
+
+      // Monitor broker connections
+      setTimeout(() => {
+        try {
+          const sockets = getRelaySockets();
+          const entries = Object.entries(sockets);
+          log(`Broker connections: ${entries.length}`);
+          entries.forEach(([url, socket]) => {
+            const state = (socket as WebSocket)?.readyState;
+            const stateStr = state === 1 ? '✅ OPEN' : state === 0 ? '⏳ CONNECTING' : state === 2 ? '⚠️ CLOSING' : '❌ CLOSED';
+            log(`  ${url}: ${stateStr}`);
+          });
+          if (entries.length === 0) {
+            log('⚠️ No broker sockets found — brokers may still be connecting');
+          }
+        } catch (e) {
+          log(`getRelaySockets error: ${e}`);
+        }
+      }, 3000);
+
     } catch (err) {
       console.error('Failed to join room:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      log(`❌ Join failed: ${msg}`);
       setStatus('error');
-      setError(err instanceof Error ? err.message : '无法连接到信令服务器，请检查网络后重试');
+      setError(msg);
       roomRef.current = null;
     }
-  }, []);
+  }, [log]);
 
   const sendMessage = useCallback((text: string) => {
     const msg: ChatMessage = {
@@ -130,6 +167,7 @@ export function usePeerRoom(displayName: string) {
     setPeers([]);
     setMembers(new Map());
     setMessages([]);
+    setDebugLog([]);
   }, []);
 
   useEffect(() => {
@@ -146,6 +184,7 @@ export function usePeerRoom(displayName: string) {
     peers,
     members,
     messages,
+    debugLog,
     join,
     leave,
     sendMessage,
