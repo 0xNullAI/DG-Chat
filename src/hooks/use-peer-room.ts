@@ -5,8 +5,11 @@ import type { ChatMessage, DeviceCommand, MemberState, CmdAction } from '../lib/
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ActionSender = (data: any, targetPeers?: string | string[]) => void;
 
+export type RoomStatus = 'idle' | 'connecting' | 'connected' | 'error';
+
 export function usePeerRoom(displayName: string) {
-  const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState<RoomStatus>('idle');
+  const [error, setError] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [peers, setPeers] = useState<string[]>([]);
   const [members, setMembers] = useState<Map<string, MemberState>>(new Map());
@@ -18,7 +21,6 @@ export function usePeerRoom(displayName: string) {
   const sendStateRef = useRef<ActionSender | null>(null);
   const onCommandRef = useRef<((cmd: DeviceCommand, peerId: string) => void) | null>(null);
 
-  // Allow external command handler registration
   const setCommandHandler = useCallback((handler: (cmd: DeviceCommand, peerId: string) => void) => {
     onCommandRef.current = handler;
   }, []);
@@ -26,56 +28,71 @@ export function usePeerRoom(displayName: string) {
   const join = useCallback((roomCode: string) => {
     if (roomRef.current) return;
 
-    const room = joinRoom({ appId: 'dg-chat-v1' }, roomCode);
-    roomRef.current = room;
-    setRoomId(roomCode);
-    setConnected(true);
+    setStatus('connecting');
+    setError(null);
 
-    // 创建通信通道（使用 unknown 绕过 Trystero 的 DataPayload 索引签名约束）
-    const [sendChat, onChat] = room.makeAction('chat');
-    const [sendCmd, onCmd] = room.makeAction('cmd');
-    const [sendState, onState] = room.makeAction('state');
+    try {
+      const room = joinRoom({
+        appId: 'dg-chat-v1',
+        relayUrls: [
+          'wss://relay.damus.io',
+          'wss://nos.lol',
+          'wss://relay.nostr.place',
+          'wss://nostr.data.haus',
+          'wss://purplerelay.com',
+        ],
+        relayRedundancy: 5,
+      }, roomCode);
+      roomRef.current = room;
+      setRoomId(roomCode);
 
-    sendChatRef.current = sendChat;
-    sendCommandRef.current = sendCmd;
-    sendStateRef.current = sendState;
+      const [sendChat, onChat] = room.makeAction('chat');
+      const [sendCmd, onCmd] = room.makeAction('cmd');
+      const [sendState, onState] = room.makeAction('state');
 
-    // 监听成员加入
-    room.onPeerJoin((peerId: string) => {
-      setPeers(prev => [...prev, peerId]);
-    });
+      sendChatRef.current = sendChat;
+      sendCommandRef.current = sendCmd;
+      sendStateRef.current = sendState;
 
-    // 监听成员离开
-    room.onPeerLeave((peerId: string) => {
-      setPeers(prev => prev.filter(p => p !== peerId));
-      setMembers(prev => {
-        const next = new Map(prev);
-        next.delete(peerId);
-        return next;
+      room.onPeerJoin((peerId: string) => {
+        setPeers(prev => [...prev, peerId]);
       });
-    });
 
-    // 监听聊天消息
-    onChat((data: unknown, peerId: string) => {
-      const msg = data as ChatMessage;
-      setMessages(prev => [...prev, { ...msg, sender: peerId }]);
-    });
-
-    // 监听控制指令
-    onCmd((data: unknown, peerId: string) => {
-      const cmd = data as DeviceCommand;
-      onCommandRef.current?.(cmd, peerId);
-    });
-
-    // 监听成员状态
-    onState((data: unknown, peerId: string) => {
-      const state = data as MemberState;
-      setMembers(prev => {
-        const next = new Map(prev);
-        next.set(peerId, { ...state, peerId });
-        return next;
+      room.onPeerLeave((peerId: string) => {
+        setPeers(prev => prev.filter(p => p !== peerId));
+        setMembers(prev => {
+          const next = new Map(prev);
+          next.delete(peerId);
+          return next;
+        });
       });
-    });
+
+      onChat((data: unknown, peerId: string) => {
+        const msg = data as ChatMessage;
+        setMessages(prev => [...prev, { ...msg, sender: peerId }]);
+      });
+
+      onCmd((data: unknown, peerId: string) => {
+        const cmd = data as DeviceCommand;
+        onCommandRef.current?.(cmd, peerId);
+      });
+
+      onState((data: unknown, peerId: string) => {
+        const state = data as MemberState;
+        setMembers(prev => {
+          const next = new Map(prev);
+          next.set(peerId, { ...state, peerId });
+          return next;
+        });
+      });
+
+      setStatus('connected');
+    } catch (err) {
+      console.error('Failed to join room:', err);
+      setStatus('error');
+      setError(err instanceof Error ? err.message : '无法连接到信令服务器，请检查网络后重试');
+      roomRef.current = null;
+    }
   }, []);
 
   const sendMessage = useCallback((text: string) => {
@@ -105,14 +122,14 @@ export function usePeerRoom(displayName: string) {
     sendChatRef.current = null;
     sendCommandRef.current = null;
     sendStateRef.current = null;
-    setConnected(false);
+    setStatus('idle');
+    setError(null);
     setRoomId(null);
     setPeers([]);
     setMembers(new Map());
     setMessages([]);
   }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       roomRef.current?.leave();
@@ -120,7 +137,9 @@ export function usePeerRoom(displayName: string) {
   }, []);
 
   return {
-    connected,
+    status,
+    connected: status === 'connected',
+    error,
     roomId,
     peers,
     members,

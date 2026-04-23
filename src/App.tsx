@@ -82,6 +82,8 @@ export default function App() {
         displayName={displayName}
         onNameChange={setDisplayName}
         onJoin={peerRoom.join}
+        status={peerRoom.status}
+        error={peerRoom.error}
       />
     );
   }
