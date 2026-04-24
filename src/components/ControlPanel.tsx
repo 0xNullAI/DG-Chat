@@ -3,6 +3,7 @@ import { Copy, Check, ChevronRight } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { MemberState, CmdAction, WaveformTransfer } from '../lib/protocol';
 import type { WaveformDefinition } from '../lib/waveforms';
+import { BUILTIN_WAVEFORMS } from '../lib/waveforms';
 import { MemberCard } from './MemberCard';
 import { MemberControl } from './MemberControl';
 
@@ -69,6 +70,13 @@ export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, di
   if (selectedMember) {
     const isSelf = selectedMember === 'self';
     const member = isSelf ? selfState : members.get(selectedMember);
+
+    // When controlling a remote peer, show their waveform catalog; fall back to builtins if not yet received
+    const targetWaveforms: WaveformDefinition[] = isSelf
+      ? waveforms
+      : (member?.waveformCatalog ?? BUILTIN_WAVEFORMS.map(w => ({ id: w.id, name: w.name, custom: false })))
+          .map(w => ({ id: w.id, name: w.name, custom: !!w.custom, description: '', frames: [] }));
+
     return (
       <MemberControl
         peerId={selectedMember}
@@ -77,7 +85,7 @@ export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, di
         onSendWaveform={onSendWaveform}
         displayName={displayName}
         onBack={() => setSelectedMember(null)}
-        waveforms={waveforms}
+        waveforms={targetWaveforms}
         onImportWaveform={onImportWaveform}
         onRemoveWaveform={onRemoveWaveform}
         isSelf={isSelf}

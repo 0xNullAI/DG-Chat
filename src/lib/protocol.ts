@@ -39,6 +39,12 @@ export interface WaveformTransfer {
   fromName: string;
 }
 
+export interface WaveformCatalogEntry {
+  id: string;
+  name: string;
+  custom: boolean;
+}
+
 export interface MemberState {
   peerId: string;
   displayName: string;
@@ -48,4 +54,5 @@ export interface MemberState {
   waveA: string | null;
   waveB: string | null;
   battery: number | null;
+  waveformCatalog?: WaveformCatalogEntry[];
 }

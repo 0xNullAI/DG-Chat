@@ -150,7 +150,6 @@ export function MemberControl({
   const preFireStrA = useRef(0);
   const preFireStrB = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const remoteFileInputRef = useRef<HTMLInputElement>(null);
   const switchTimerA = useRef<number | null>(null);
   const switchTimerB = useRef<number | null>(null);
 
@@ -466,23 +465,6 @@ export function MemberControl({
               波形{currentPlaylist.length > 0 ? ` (已选 ${currentPlaylist.length})` : ''}
             </p>
             <div className="flex items-center gap-1">
-              {!isSelf && (
-                <>
-                  <button
-                    onClick={() => remoteFileInputRef.current?.click()}
-                    className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--success)] transition-colors hover:bg-[var(--success-soft)]"
-                  >
-                    <Upload size={12} /> 为对方导入
-                  </button>
-                  <input
-                    ref={remoteFileInputRef}
-                    type="file"
-                    accept=".pulse,.zip"
-                    className="hidden"
-                    onChange={handleRemoteImport}
-                  />
-                </>
-              )}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
@@ -494,7 +476,7 @@ export function MemberControl({
                 type="file"
                 accept=".pulse,.zip"
                 className="hidden"
-                onChange={handleFileImport}
+                onChange={isSelf ? handleFileImport : handleRemoteImport}
               />
             </div>
           </div>
@@ -527,7 +509,7 @@ export function MemberControl({
                       {currentPlaylist.indexOf(w.id) + 1}
                     </span>
                   )}
-                  {w.custom && !inPlaylist && (
+                  {isSelf && w.custom && !inPlaylist && (
                     <button
                       onClick={e => { e.stopPropagation(); onRemoveWaveform(w.id); }}
                       className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white opacity-0 transition-opacity group-hover:opacity-100"

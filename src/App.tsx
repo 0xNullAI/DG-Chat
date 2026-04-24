@@ -80,6 +80,11 @@ export default function App() {
         waveA: device.waveIdA,
         waveB: device.waveIdB,
         battery: device.battery,
+        waveformCatalog: waveformsRef.current.allWaveforms.map(w => ({
+          id: w.id,
+          name: w.name,
+          custom: !!w.custom,
+        })),
       });
     };
     broadcast();
