@@ -127,6 +127,7 @@ export class DGLabDevice {
   private channelA: ChannelState = makeChannelState();
   private channelB: ChannelState = makeChannelState();
 
+  private tickWorker: Worker | null = null;
   private tickTimer: number | null = null;
   private tickInFlight = false;
   private onStateChange: (() => void) | null = null;
@@ -355,20 +356,32 @@ export class DGLabDevice {
   // 内部实现
   // ----------------------------------------------------------
 
-  /** 启动 100ms 定时发送循环 */
+  /** 启动 100ms 定时发送循环（优先用 Web Worker 避免后台降频） */
   private startTick(): void {
     this.stopTick();
-    this.tickTimer = window.setInterval(() => {
-      if (this.version === 'v3') {
-        this.tickV3().catch(console.error);
-      } else {
-        this.tickV2().catch(console.error);
-      }
-    }, TICK_INTERVAL_MS);
+    const tick = () => {
+      if (this.version === 'v3') this.tickV3().catch(console.error);
+      else this.tickV2().catch(console.error);
+    };
+    try {
+      const code = `setInterval(()=>self.postMessage(0),${TICK_INTERVAL_MS})`;
+      const blob = new Blob([code], { type: 'text/javascript' });
+      const url = URL.createObjectURL(blob);
+      this.tickWorker = new Worker(url);
+      URL.revokeObjectURL(url);
+      this.tickWorker.onmessage = tick;
+    } catch {
+      // CSP 或环境不支持 Blob Worker，退回主线程 timer
+      this.tickTimer = window.setInterval(tick, TICK_INTERVAL_MS);
+    }
   }
 
   /** 停止定时发送循环 */
   private stopTick(): void {
+    if (this.tickWorker) {
+      this.tickWorker.terminate();
+      this.tickWorker = null;
+    }
     if (this.tickTimer !== null) {
       window.clearInterval(this.tickTimer);
       this.tickTimer = null;

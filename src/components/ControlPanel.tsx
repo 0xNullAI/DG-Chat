@@ -21,6 +21,8 @@ interface ControlPanelProps {
   selfLimitA: number;
   selfLimitB: number;
   onSetLimit: (channel: 'A' | 'B', value: number) => void;
+  backgroundBehavior: 'stop' | 'keep';
+  onSetBackgroundBehavior: (mode: 'stop' | 'keep') => void;
 }
 
 function SelfCard({ member, onClick }: { member: MemberState; onClick: () => void }) {
@@ -54,7 +56,7 @@ function SelfCard({ member, onClick }: { member: MemberState; onClick: () => voi
   );
 }
 
-export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, displayName, roomId, waveforms, onImportWaveform, onRemoveWaveform, selfState, selfLimitA, selfLimitB, onSetLimit }: ControlPanelProps) {
+export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, displayName, roomId, waveforms, onImportWaveform, onRemoveWaveform, selfState, selfLimitA, selfLimitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior }: ControlPanelProps) {
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -92,6 +94,8 @@ export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, di
         limitA={isSelf ? selfLimitA : 200}
         limitB={isSelf ? selfLimitB : 200}
         onSetLimit={isSelf ? onSetLimit : undefined}
+        backgroundBehavior={backgroundBehavior}
+        onSetBackgroundBehavior={isSelf ? onSetBackgroundBehavior : undefined}
       />
     );
   }

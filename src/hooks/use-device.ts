@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { DGLabDevice, type WaveFrame, type DeviceInfo } from '../lib/bluetooth';
 
 /**
@@ -17,7 +17,12 @@ export function useDevice() {
   const [waveIdB, setWaveIdB] = useState<string | null>(null);
   const [limitA, setLimitA] = useState(50);
   const [limitB, setLimitB] = useState(50);
+  const [backgroundBehavior, setBackgroundBehaviorState] = useState<'stop' | 'keep'>(
+    () => (localStorage.getItem('dg-bg-behavior') as 'stop' | 'keep') ?? 'stop'
+  );
   const deviceRef = useRef<DGLabDevice | null>(null);
+  const bgBehaviorRef = useRef(backgroundBehavior);
+  bgBehaviorRef.current = backgroundBehavior;
 
   /** 从设备实例同步状态到 React state */
   const syncState = useCallback(() => {
@@ -91,6 +96,24 @@ export function useDevice() {
     deviceRef.current?.stopAll();
   }, []);
 
+  /** 设置后台行为 */
+  const setBackgroundBehavior = useCallback((mode: 'stop' | 'keep') => {
+    setBackgroundBehaviorState(mode);
+    localStorage.setItem('dg-bg-behavior', mode);
+  }, []);
+
+  // 后台行为：切换至后台时按设置停止输出
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === 'hidden' && bgBehaviorRef.current === 'stop') {
+        deviceRef.current?.stopAll();
+        syncState();
+      }
+    };
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, [syncState]);
+
   return {
     connected,
     deviceInfo,
@@ -110,5 +133,7 @@ export function useDevice() {
     limitA,
     limitB,
     setLimit,
+    backgroundBehavior,
+    setBackgroundBehavior,
   };
 }

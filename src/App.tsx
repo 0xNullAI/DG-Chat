@@ -232,6 +232,8 @@ export default function App() {
             selfLimitA={device.limitA}
             selfLimitB={device.limitB}
             onSetLimit={device.setLimit}
+            backgroundBehavior={device.backgroundBehavior}
+            onSetBackgroundBehavior={device.setBackgroundBehavior}
           />
         </div>
       </div>
