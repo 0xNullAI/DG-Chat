@@ -15,5 +15,6 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: npm run lint || true # baseline lint warnings exist; don't block until cleaned up
+      - run: npm run lint || true # baseline lint warnings exist; not blocking
+      - run: npm run test
       - run: npm run build
