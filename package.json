@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dg-kit/core": "^0.1.1",
+    "@dg-kit/waveforms": "^0.1.1",
     "fflate": "^0.8.2",
     "lucide-react": "^1.8.0",
     "mqtt": "^5.15.1",
