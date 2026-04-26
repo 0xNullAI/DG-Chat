@@ -12,10 +12,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@dg-kit/core": "^1.0.0",
-    "@dg-kit/protocol": "^1.0.0",
-    "@dg-kit/transport-webbluetooth": "^1.0.0",
-    "@dg-kit/waveforms": "^1.0.0",
+    "@dg-kit/core": "^1.0.1",
+    "@dg-kit/protocol": "^1.0.1",
+    "@dg-kit/transport-webbluetooth": "^1.0.1",
+    "@dg-kit/waveforms": "^1.0.1",
     "fflate": "^0.8.2",
     "lucide-react": "^1.11.0",
     "mqtt": "^5.15.1",
