@@ -29,9 +29,9 @@ public/               static assets
 
 ## Branch & PR Convention
 
-- Default branch: `main`
-- All changes go directly on `main` (small project, single-user surface)
-- For larger refactors, branch + PR is welcomed but not required
+- `dev` — day-to-day development. **All PRs target `dev`**, never `main` directly.
+- `main` — releases only; promoted from `dev` via release flow.
+- Dependabot is configured against `dev`.
 
 ## Commands
 
