@@ -20,6 +20,11 @@ export function useDevice() {
   const [backgroundBehavior, setBackgroundBehaviorState] = useState<'stop' | 'keep'>(
     () => (localStorage.getItem('dg-bg-behavior') as 'stop' | 'keep') ?? 'stop'
   );
+  const [firePolicy, setFirePolicyState] = useState<'sum' | 'max' | 'avg'>(
+    () => (localStorage.getItem('dg-fire-policy') as 'sum' | 'max' | 'avg' | null) ?? 'max'
+  );
+  const firePolicyRef = useRef(firePolicy);
+  firePolicyRef.current = firePolicy;
   const deviceRef = useRef<DGLabDevice | null>(null);
   const bgBehaviorRef = useRef(backgroundBehavior);
   bgBehaviorRef.current = backgroundBehavior;
@@ -102,6 +107,12 @@ export function useDevice() {
     localStorage.setItem('dg-bg-behavior', mode);
   }, []);
 
+  /** 设置多人开火聚合策略 */
+  const setFirePolicy = useCallback((p: 'sum' | 'max' | 'avg') => {
+    setFirePolicyState(p);
+    localStorage.setItem('dg-fire-policy', p);
+  }, []);
+
   // 后台行为：切换至后台时按设置停止输出
   useEffect(() => {
     const handler = () => {
@@ -135,5 +146,8 @@ export function useDevice() {
     setLimit,
     backgroundBehavior,
     setBackgroundBehavior,
+    firePolicy,
+    firePolicyRef,
+    setFirePolicy,
   };
 }

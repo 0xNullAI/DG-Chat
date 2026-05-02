@@ -60,6 +60,8 @@ interface MemberControlProps {
   onSetLimit?: (channel: 'A' | 'B', value: number) => void;
   backgroundBehavior: 'stop' | 'keep';
   onSetBackgroundBehavior?: (mode: 'stop' | 'keep') => void;
+  firePolicy: 'sum' | 'max' | 'avg';
+  onSetFirePolicy: (p: 'sum' | 'max' | 'avg') => void;
 }
 
 const RING_R = 46;
@@ -134,6 +136,7 @@ export function MemberControl({
   peerId, member, onSendCommand, onSendWaveform, onBack,
   waveforms, onImportWaveform, onRemoveWaveform, onRestoreDefaults,
   isSelf, limitA, limitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior,
+  firePolicy, onSetFirePolicy,
 }: MemberControlProps) {
   const [waveTab, setWaveTab] = useState<'A' | 'B'>('A');
   const [firePopOpen, setFirePopOpen] = useState(false);
@@ -160,10 +163,8 @@ export function MemberControl({
   const currentIndexB   = member?.currentIndexB ?? 0;
   const [fireStrA, setFireStrA] = useState(0);
   const [fireStrB, setFireStrB] = useState(0);
-  const [firingA, setFiringA] = useState(false);
-  const [firingB, setFiringB] = useState(false);
-  const preFireStrA = useRef(0);
-  const preFireStrB = useRef(0);
+  const firingA = !!member?.firingA;
+  const firingB = !!member?.firingB;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const name = member?.displayName || peerId.slice(0, 8);
@@ -543,14 +544,14 @@ export function MemberControl({
           <FireCircle
             label="A" strength={fireStrA} maxStrength={limitA} disabled={false} firing={firingA}
             onStrengthChange={setFireStrA}
-            onFireStart={() => { preFireStrA.current = localStrengthA; setFiringA(true); onSendCommand(peerId, 'fire', { c: 'A', v: localStrengthA + fireStrA }); }}
-            onFireStop={() => { setFiringA(false); onSendCommand(peerId, 'fire_stop', { c: 'A', v: preFireStrA.current }); }}
+            onFireStart={() => onSendCommand(peerId, 'fire_press', { c: 'A', v: fireStrA })}
+            onFireStop={() => onSendCommand(peerId, 'fire_release', { c: 'A' })}
           />
           <FireCircle
             label="B" strength={fireStrB} maxStrength={limitB} disabled={false} firing={firingB}
             onStrengthChange={setFireStrB}
-            onFireStart={() => { preFireStrB.current = localStrengthB; setFiringB(true); onSendCommand(peerId, 'fire', { c: 'B', v: localStrengthB + fireStrB }); }}
-            onFireStop={() => { setFiringB(false); onSendCommand(peerId, 'fire_stop', { c: 'B', v: preFireStrB.current }); }}
+            onFireStart={() => onSendCommand(peerId, 'fire_press', { c: 'B', v: fireStrB })}
+            onFireStop={() => onSendCommand(peerId, 'fire_release', { c: 'B' })}
           />
         </div>
       </Popover>
@@ -594,6 +595,28 @@ export function MemberControl({
             </div>
 
             <div className="border-t border-[var(--surface-border)] pt-3">
+              <p className="mb-2 text-xs font-medium text-[var(--text-soft)]">多人开火聚合策略</p>
+              <div className="flex gap-1">
+                {(['max', 'sum', 'avg'] as const).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => onSetFirePolicy(p)}
+                    className={`flex-1 rounded-[var(--radius-sm)] py-1.5 text-xs transition-colors ${
+                      firePolicy === p
+                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                        : 'border border-[var(--surface-border)] text-[var(--text-soft)] hover:bg-[var(--bg-soft)]'
+                    }`}
+                  >
+                    {p === 'max' ? '取最大' : p === 'sum' ? '叠加' : '平均'}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-[10px] text-[var(--text-faint)]">
+                取最大：任意控制者按下都不超过其单人份。叠加：多人累计（受上限封顶）。平均：多人按时反而稀释。
+              </p>
+            </div>
+
+            <div className="border-t border-[var(--surface-border)] pt-3">
               <button
                 onClick={() => {
                   if (window.confirm('恢复默认波形：清空全部自定义波形并取消隐藏所有内置波形。此操作无法撤销。')) {
@@ -606,7 +629,6 @@ export function MemberControl({
               </button>
               <p className="mt-1 text-[10px] text-[var(--text-faint)]">清空自定义 + 取消隐藏内置</p>
             </div>
-            {/* policy 由后续 task 在此追加 */}
           </div>
         ) : (
           <p className="text-xs text-[var(--text-faint)]">仅本人可见此设置</p>
