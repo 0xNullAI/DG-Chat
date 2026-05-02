@@ -125,7 +125,7 @@ export default function App() {
         <div className="flex items-center gap-2">
           <h1 className="text-base font-bold text-[var(--text)]">DG-Chat</h1>
           {peerRoom.roomId && (
-            <span className="rounded-full bg-[var(--bg-soft)] px-2 py-0.5 text-[10px] tabular-nums text-[var(--text-faint)]">
+            <span className="hidden rounded-full bg-[var(--bg-soft)] px-2 py-0.5 text-[10px] tabular-nums text-[var(--text-faint)] sm:inline">
               {peerRoom.roomId}
             </span>
           )}
@@ -165,7 +165,7 @@ export default function App() {
             {device.connected ? (
               <>
                 <Bluetooth className="h-4 w-4" />
-                {device.battery != null && <span>{device.battery}%</span>}
+                {device.battery != null && <span className="hidden sm:inline">{device.battery}%</span>}
               </>
             ) : (
               <BluetoothOff className="h-4 w-4" />
@@ -176,8 +176,9 @@ export default function App() {
             <button
               onClick={device.stopAll}
               className="flex h-9 items-center gap-1 rounded-[10px] bg-[var(--danger-soft)] px-2.5 text-xs font-medium text-[var(--danger)] transition-opacity hover:opacity-80"
+              title="紧急停止"
             >
-              ⏹ 停止
+              <span aria-hidden>⏹</span><span className="hidden sm:inline">停止</span>
             </button>
           )}
           {/* 离开房间 */}
