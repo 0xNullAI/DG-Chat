@@ -143,6 +143,9 @@ export function MemberControl({
   const [safetyPopOpen, setSafetyPopOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const [popAnchorTop, setPopAnchorTop] = useState(0);
+  // 防御性兜底：popover 关闭时如果按钮还按着（pointerup 没触发），主动发 release
+  const pressedARef = useRef(false);
+  const pressedBRef = useRef(false);
 
   useEffect(() => {
     const measure = () => {
@@ -153,6 +156,12 @@ export function MemberControl({
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, []);
+
+  useEffect(() => {
+    if (firePopOpen) return;
+    if (pressedARef.current) { onSendCommand(peerId, 'fire_release', { c: 'A' }); pressedARef.current = false; }
+    if (pressedBRef.current) { onSendCommand(peerId, 'fire_release', { c: 'B' }); pressedBRef.current = false; }
+  }, [firePopOpen, peerId, onSendCommand]);
   const playlistA       = member?.queueA ?? [];
   const playlistB       = member?.queueB ?? [];
   const playModeA       = member?.playModeA ?? 'single';
@@ -554,14 +563,14 @@ export function MemberControl({
           <FireCircle
             label="A" strength={fireStrA} maxStrength={limitA} disabled={false} firing={firingA}
             onStrengthChange={setFireStrA}
-            onFireStart={() => onSendCommand(peerId, 'fire_press', { c: 'A', v: fireStrA })}
-            onFireStop={() => onSendCommand(peerId, 'fire_release', { c: 'A' })}
+            onFireStart={() => { pressedARef.current = true; onSendCommand(peerId, 'fire_press', { c: 'A', v: fireStrA }); }}
+            onFireStop={() => { pressedARef.current = false; onSendCommand(peerId, 'fire_release', { c: 'A' }); }}
           />
           <FireCircle
             label="B" strength={fireStrB} maxStrength={limitB} disabled={false} firing={firingB}
             onStrengthChange={setFireStrB}
-            onFireStart={() => onSendCommand(peerId, 'fire_press', { c: 'B', v: fireStrB })}
-            onFireStop={() => onSendCommand(peerId, 'fire_release', { c: 'B' })}
+            onFireStart={() => { pressedBRef.current = true; onSendCommand(peerId, 'fire_press', { c: 'B', v: fireStrB }); }}
+            onFireStop={() => { pressedBRef.current = false; onSendCommand(peerId, 'fire_release', { c: 'B' }); }}
           />
         </div>
       </Popover>

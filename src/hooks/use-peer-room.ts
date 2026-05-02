@@ -41,11 +41,15 @@ function generatePeerId(): string {
 
 const selfId = generatePeerId();
 
-/** Actions 中需要可靠送达的（QoS 1）。adjust_strength 走 QoS 0：高频，最新覆盖前者。 */
+/** Actions 中需要可靠送达的（QoS 1）。adjust_strength 走 QoS 0：高频，最新覆盖前者。
+ *  fire_release 必须可靠——丢一次松开消息会让 owner 持续高强度直到 watchdog 兜底。
+ *  set_queue / set_play_mode / set_interval 丢失会撕裂控制者与被控方的视图。 */
 const RELIABLE_ACTIONS = new Set<CmdAction>([
   'change_wave', 'start', 'stop', 'stop_wave',
   'fire', 'fire_stop', 'burst',
   'vibrate', 'alert', 'bg', 'shake', 'beep',
+  'fire_press', 'fire_release',
+  'set_queue', 'set_play_mode', 'set_interval',
 ]);
 
 export function usePeerRoom(displayName: string) {

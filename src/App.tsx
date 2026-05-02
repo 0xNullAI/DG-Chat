@@ -251,22 +251,39 @@ export default function App() {
   useChannelRotation('A', device.waveIdA, queueA, playModeA, intervalASec, setCurrentIndexA, deviceRef, waveformsRef);
   useChannelRotation('B', device.waveIdB, queueB, playModeB, intervalBSec, setCurrentIndexB, deviceRef, waveformsRef);
 
-  // 看门狗：清除 30 秒未更新的 fire_press 记录（防止对方崩溃/断连遗留）
+  // 看门狗：清除 8 秒未更新的 fire_press 记录（兜底；正常路径靠 fire_release QoS 1 + presence 删 peer）
   useEffect(() => {
     const t = window.setInterval(() => {
       const now = Date.now();
       let dirtyA = false, dirtyB = false;
       fireBoostsA.current.forEach((v, k) => {
-        if (now - v.ts > 30_000) { fireBoostsA.current.delete(k); dirtyA = true; }
+        if (now - v.ts > 8_000) { fireBoostsA.current.delete(k); dirtyA = true; }
       });
       fireBoostsB.current.forEach((v, k) => {
-        if (now - v.ts > 30_000) { fireBoostsB.current.delete(k); dirtyB = true; }
+        if (now - v.ts > 8_000) { fireBoostsB.current.delete(k); dirtyB = true; }
       });
       if (dirtyA) callApplyFire('A');
       if (dirtyB) callApplyFire('B');
-    }, 5000);
+    }, 2000);
     return () => clearInterval(t);
   }, [callApplyFire]);
+
+  // Peer 离场即时清理：被 presence_timeout 踢掉的 peer 立刻撤掉它在两通道的 fire 贡献，不等 watchdog
+  const knownPeersRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const current = new Set(peerRoom.peers);
+    const removed: string[] = [];
+    knownPeersRef.current.forEach(p => { if (!current.has(p)) removed.push(p); });
+    knownPeersRef.current = current;
+    if (removed.length === 0) return;
+    let dirtyA = false, dirtyB = false;
+    for (const p of removed) {
+      if (fireBoostsA.current.delete(p)) dirtyA = true;
+      if (fireBoostsB.current.delete(p)) dirtyB = true;
+    }
+    if (dirtyA) callApplyFire('A');
+    if (dirtyB) callApplyFire('B');
+  }, [peerRoom.peers, callApplyFire]);
 
   if (!safety.accepted) {
     return <SafetyNotice onAccept={({ dontShowAgain }) => safety.accept(dontShowAgain)} />;
