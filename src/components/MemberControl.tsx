@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap, Repeat, Repeat1, Shuffle, Timer } from 'lucide-react';
+import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap, Repeat, Repeat1, Shuffle, Timer, Settings } from 'lucide-react';
 import type { CmdAction, DeviceCommand, MemberState, WaveformTransfer } from '../lib/protocol';
 
 function useRepeatAction(action: () => void, initialDelay = 400, repeatInterval = 100) {
@@ -42,6 +42,8 @@ function RepeatButton({ onAction, className, children }: {
   );
 }
 import { parseImportFile, type WaveformDefinition } from '../lib/waveforms';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { Popover } from './Popover';
 
 interface MemberControlProps {
   peerId: string;
@@ -135,6 +137,21 @@ export function MemberControl({
   isSelf, limitA, limitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior,
 }: MemberControlProps) {
   const [waveTab, setWaveTab] = useState<'A' | 'B'>('A');
+  const [firePopOpen, setFirePopOpen] = useState(false);
+  const [safetyPopOpen, setSafetyPopOpen] = useState(false);
+  const headerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [popAnchorTop, setPopAnchorTop] = useState(0);
+
+  useEffect(() => {
+    const measure = () => {
+      const r = headerRef.current?.getBoundingClientRect();
+      if (r) setPopAnchorTop(r.bottom + 4);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
   const playlistA       = member?.queueA ?? [];
   const playlistB       = member?.queueB ?? [];
   const playModeA       = member?.playModeA ?? 'single';
@@ -279,7 +296,7 @@ export function MemberControl({
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-3">
+      <div ref={headerRef} className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-3">
         <button
           onClick={onBack}
           className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-soft)] transition-colors hover:bg-[var(--bg-soft)]"
@@ -300,6 +317,24 @@ export function MemberControl({
               </span>
             )}
           </div>
+        )}
+        <button
+          onClick={() => setFirePopOpen(v => !v)}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-soft)] transition-colors hover:bg-[var(--bg-soft)] ${firePopOpen ? 'bg-[var(--bg-soft)] text-[var(--text)]' : ''}`}
+          title="一键开火"
+          aria-label="一键开火"
+        >
+          <Zap size={16} />
+        </button>
+        {isSelf && (
+          <button
+            onClick={() => setSafetyPopOpen(v => !v)}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-soft)] transition-colors hover:bg-[var(--bg-soft)] ${safetyPopOpen ? 'bg-[var(--bg-soft)] text-[var(--text)]' : ''}`}
+            title="个人安全设置"
+            aria-label="个人安全设置"
+          >
+            <Settings size={16} />
+          </button>
         )}
       </div>
 
