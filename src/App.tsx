@@ -8,7 +8,7 @@ import { SafetyNotice, useSafetyAccepted } from './components/SafetyNotice';
 import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { Bluetooth, BluetoothOff, LogOut, Sun, Moon } from 'lucide-react';
-import type { DeviceCommand, MemberState, CmdAction, WaveformTransfer } from './lib/protocol';
+import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
 
 export default function App() {
   const [displayName, setDisplayName] = useState(() =>
@@ -18,6 +18,15 @@ export default function App() {
   const [theme, setTheme] = useState(() =>
     document.documentElement.getAttribute('data-theme') ?? 'dark'
   );
+
+  const [queueA, setQueueA] = useState<string[]>([]);
+  const [queueB, setQueueB] = useState<string[]>([]);
+  const [playModeA, setPlayModeA] = useState<PlayMode>('single');
+  const [playModeB, setPlayModeB] = useState<PlayMode>('single');
+  const [intervalASec, setIntervalASec] = useState(30);
+  const [intervalBSec, setIntervalBSec] = useState(30);
+  const [currentIndexA, setCurrentIndexA] = useState(0);
+  const [currentIndexB, setCurrentIndexB] = useState(0);
 
   const safety = useSafetyAccepted();
   const peerRoom = usePeerRoom(displayName);
@@ -36,6 +45,23 @@ export default function App() {
 
   // 注册远程指令处理器
   const handleCommand = useCallback((cmd: DeviceCommand, _peerId: string) => {
+    // 队列意图：更新本机权威状态。由 broadcastStateSlow 在 effect 里同步给所有人。
+    if (cmd.action === 'set_queue' && cmd.c && cmd.q) {
+      if (cmd.c === 'A') { setQueueA(cmd.q); setCurrentIndexA(0); }
+      else               { setQueueB(cmd.q); setCurrentIndexB(0); }
+      return;
+    }
+    if (cmd.action === 'set_play_mode' && cmd.c && cmd.mode) {
+      if (cmd.c === 'A') setPlayModeA(cmd.mode);
+      else               setPlayModeB(cmd.mode);
+      return;
+    }
+    if (cmd.action === 'set_interval' && cmd.c && cmd.iv != null) {
+      if (cmd.c === 'A') setIntervalASec(cmd.iv);
+      else               setIntervalBSec(cmd.iv);
+      return;
+    }
+
     const ctx: CommandContext = {
       device: deviceRef.current.connected ? (deviceRef.current as unknown as CommandContext['device']) : null,
       getWaveform: waveformsRef.current.getWaveform,
@@ -93,6 +119,10 @@ export default function App() {
         waveformCatalog: waveformsRef.current.allWaveforms.map(w => ({
           id: w.id, name: w.name, custom: !!w.custom,
         })),
+        queueA, queueB,
+        playModeA, playModeB,
+        intervalA: intervalASec, intervalB: intervalBSec,
+        currentIndexA, currentIndexB,
       });
     };
     send();
@@ -100,7 +130,51 @@ export default function App() {
     return () => clearInterval(t);
   }, [peerRoom.connected, peerRoom.broadcastStateSlow,
       displayName, device.connected, device.battery,
-      waveforms.allWaveforms.length]);
+      waveforms.allWaveforms.length,
+      queueA, queueB, playModeA, playModeB,
+      intervalASec, intervalBSec, currentIndexA, currentIndexB]);
+
+  // A 通道：被控方权威定时切换（自己持有真值）
+  useEffect(() => {
+    if (device.waveIdA == null || queueA.length <= 1 || playModeA === 'single') return;
+    const t = window.setInterval(() => {
+      setCurrentIndexA(prev => {
+        const next = playModeA === 'random'
+          ? Math.floor(Math.random() * queueA.length)
+          : (prev + 1) % queueA.length;
+        const id = queueA[next]!;
+        const wf = waveformsRef.current.getWaveform(id);
+        const dev = deviceRef.current;
+        if (wf && dev.connected) {
+          (dev as unknown as { setWave: (c: 'A' | 'B', frames: [number, number][], id: string, loop: boolean) => void })
+            .setWave('A', wf.frames, wf.id, true);
+        }
+        return next;
+      });
+    }, intervalASec * 1000);
+    return () => clearInterval(t);
+  }, [device.waveIdA, queueA, playModeA, intervalASec]);
+
+  // B 通道镜像
+  useEffect(() => {
+    if (device.waveIdB == null || queueB.length <= 1 || playModeB === 'single') return;
+    const t = window.setInterval(() => {
+      setCurrentIndexB(prev => {
+        const next = playModeB === 'random'
+          ? Math.floor(Math.random() * queueB.length)
+          : (prev + 1) % queueB.length;
+        const id = queueB[next]!;
+        const wf = waveformsRef.current.getWaveform(id);
+        const dev = deviceRef.current;
+        if (wf && dev.connected) {
+          (dev as unknown as { setWave: (c: 'A' | 'B', frames: [number, number][], id: string, loop: boolean) => void })
+            .setWave('B', wf.frames, wf.id, true);
+        }
+        return next;
+      });
+    }, intervalBSec * 1000);
+    return () => clearInterval(t);
+  }, [device.waveIdB, queueB, playModeB, intervalBSec]);
 
   if (!safety.accepted) {
     return <SafetyNotice onAccept={({ dontShowAgain }) => safety.accept(dontShowAgain)} />;
@@ -236,6 +310,10 @@ export default function App() {
               waveA: device.waveIdA,
               waveB: device.waveIdB,
               battery: device.battery,
+              queueA, queueB,
+              playModeA, playModeB,
+              intervalA: intervalASec, intervalB: intervalBSec,
+              currentIndexA, currentIndexB,
             } satisfies MemberState}
             selfLimitA={device.limitA}
             selfLimitB={device.limitB}
