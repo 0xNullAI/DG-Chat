@@ -7,7 +7,8 @@ import { RoomEntry } from './components/RoomEntry';
 import { SafetyNotice, useSafetyAccepted } from './components/SafetyNotice';
 import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
-import { Bluetooth, BluetoothOff, LogOut, Sun, Moon } from 'lucide-react';
+import { DeviceSafetyButton } from './components/DeviceSafetyButton';
+import { LogOut, Sun, Moon } from 'lucide-react';
 import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
 import type { WaveFrame } from './lib/waveforms';
 
@@ -335,25 +336,22 @@ export default function App() {
           >
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
-          {/* 蓝牙连接按钮 */}
-          <button
-            onClick={device.connected ? device.disconnect : device.connect}
-            className={`flex h-9 items-center gap-1.5 rounded-[10px] px-2.5 text-xs transition-colors ${
-              device.connected
-                ? 'bg-[var(--success-soft)] text-[var(--success)]'
-                : 'text-[var(--text-soft)] hover:bg-[var(--bg-soft)]'
-            }`}
-            title={device.connected ? `已连接 ${device.deviceInfo?.name ?? ''} (点击断开)` : '连接蓝牙设备'}
-          >
-            {device.connected ? (
-              <>
-                <Bluetooth className="h-4 w-4" />
-                {device.battery != null && <span className="hidden sm:inline">{device.battery}%</span>}
-              </>
-            ) : (
-              <BluetoothOff className="h-4 w-4" />
-            )}
-          </button>
+          {/* 蓝牙 + 个人安全设置（合并面板） */}
+          <DeviceSafetyButton
+            connected={device.connected}
+            deviceName={device.deviceInfo?.name ?? null}
+            battery={device.battery}
+            onConnect={device.connect}
+            onDisconnect={device.disconnect}
+            limitA={device.limitA}
+            limitB={device.limitB}
+            onSetLimit={device.setLimit}
+            backgroundBehavior={device.backgroundBehavior}
+            onSetBackgroundBehavior={device.setBackgroundBehavior}
+            firePolicy={device.firePolicy}
+            onSetFirePolicy={device.setFirePolicy}
+            onRestoreDefaults={waveforms.restoreDefaults}
+          />
           {/* 紧急停止 */}
           {device.connected && (
             <button
@@ -409,7 +407,6 @@ export default function App() {
             waveforms={waveforms.allWaveforms}
             onImportWaveform={waveforms.importFile}
             onRemoveWaveform={waveforms.removeWaveform}
-            onRestoreDefaults={waveforms.restoreDefaults}
             selfState={{
               peerId: 'self',
               displayName,
@@ -428,11 +425,6 @@ export default function App() {
             } satisfies MemberState}
             selfLimitA={device.limitA}
             selfLimitB={device.limitB}
-            onSetLimit={device.setLimit}
-            backgroundBehavior={device.backgroundBehavior}
-            onSetBackgroundBehavior={device.setBackgroundBehavior}
-            firePolicy={device.firePolicy}
-            onSetFirePolicy={device.setFirePolicy}
           />
         </div>
       </div>
