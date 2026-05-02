@@ -42,7 +42,6 @@ function RepeatButton({ onAction, className, children }: {
   );
 }
 import { parseImportFile, type WaveformDefinition } from '../lib/waveforms';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Popover } from './Popover';
 
 interface MemberControlProps {
@@ -140,7 +139,6 @@ export function MemberControl({
   const [firePopOpen, setFirePopOpen] = useState(false);
   const [safetyPopOpen, setSafetyPopOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [popAnchorTop, setPopAnchorTop] = useState(0);
 
   useEffect(() => {
@@ -535,116 +533,62 @@ export function MemberControl({
           {(() => {
             const builtins = waveforms.filter(w => !w.custom);
             const customs  = waveforms.filter(w =>  w.custom);
-            const activeName =
-              waveforms.find(w => w.id === activeWaveId)?.name ?? null;
-            const customsHasActive = customs.some(w => w.id === activeWaveId);
-
             return (
               <>
-                <div className="grid grid-cols-4 gap-2">
-                  {builtins.map(renderCard)}
-                </div>
-
+                <div className="grid grid-cols-4 gap-2">{builtins.map(renderCard)}</div>
                 {customs.length > 0 && (
-                  <details className="mt-3 group" open={customsHasActive}>
-                    <summary className="flex cursor-pointer items-center justify-between rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-soft)] hover:bg-[var(--bg-soft)] select-none">
-                      <span>
-                        自定义波形（{customs.length}）
-                        {activeName && customs.some(w => w.id === activeWaveId) && (
-                          <span className="ml-2 text-[var(--accent)]">· 当前：{activeName}</span>
-                        )}
-                      </span>
-                      <span className="text-[var(--text-faint)] transition-transform group-open:rotate-90">›</span>
-                    </summary>
-                    <div className="mt-2 grid grid-cols-4 gap-2">
-                      {customs.map(renderCard)}
-                    </div>
-                  </details>
+                  <>
+                    <p className="mt-3 mb-2 text-[11px] text-[var(--text-faint)]">自定义波形（{customs.length}）</p>
+                    <div className="grid grid-cols-4 gap-2">{customs.map(renderCard)}</div>
+                  </>
                 )}
               </>
             );
           })()}
         </div>
 
-        {/* ==================== Fire Buttons ==================== */}
-        <div className="mt-5">
-          <p className="mb-3 text-center text-xs text-[var(--text-faint)]">一键开火（按住增加强度，松开恢复）</p>
-          <div className="flex items-center justify-center gap-8">
-            <FireCircle
-              label="A"
-              strength={fireStrA}
-              maxStrength={limitA}
-              disabled={false}
-              firing={firingA}
-              onStrengthChange={setFireStrA}
-              onFireStart={() => {
-                preFireStrA.current = localStrengthA;
-                setFiringA(true);
-                onSendCommand(peerId, 'fire', { c: 'A', v: localStrengthA + fireStrA });
-              }}
-              onFireStop={() => {
-                setFiringA(false);
-                onSendCommand(peerId, 'fire_stop', { c: 'A', v: preFireStrA.current });
-              }}
-            />
-            <FireCircle
-              label="B"
-              strength={fireStrB}
-              maxStrength={limitB}
-              disabled={false}
-              firing={firingB}
-              onStrengthChange={setFireStrB}
-              onFireStart={() => {
-                preFireStrB.current = localStrengthB;
-                setFiringB(true);
-                onSendCommand(peerId, 'fire', { c: 'B', v: localStrengthB + fireStrB });
-              }}
-              onFireStop={() => {
-                setFiringB(false);
-                onSendCommand(peerId, 'fire_stop', { c: 'B', v: preFireStrB.current });
-              }}
-            />
-          </div>
-        </div>
+      </div>
 
-        {/* ==================== Strength Limit (self only) ==================== */}
-        {isSelf && onSetLimit && (
-          <div className="mt-6 rounded-[var(--radius-md)] border border-[var(--surface-border)] bg-[var(--bg-elevated)] p-4">
-            <p className="mb-3 text-xs font-medium text-[var(--text-soft)]">强度上限（仅自己可见）</p>
+      <Popover open={firePopOpen} onOpenChange={setFirePopOpen} title="一键开火" anchorTop={popAnchorTop}>
+        <p className="mb-3 text-center text-xs text-[var(--text-faint)]">按住增加强度，松开恢复</p>
+        <div className="flex items-center justify-center gap-8">
+          <FireCircle
+            label="A" strength={fireStrA} maxStrength={limitA} disabled={false} firing={firingA}
+            onStrengthChange={setFireStrA}
+            onFireStart={() => { preFireStrA.current = localStrengthA; setFiringA(true); onSendCommand(peerId, 'fire', { c: 'A', v: localStrengthA + fireStrA }); }}
+            onFireStop={() => { setFiringA(false); onSendCommand(peerId, 'fire_stop', { c: 'A', v: preFireStrA.current }); }}
+          />
+          <FireCircle
+            label="B" strength={fireStrB} maxStrength={limitB} disabled={false} firing={firingB}
+            onStrengthChange={setFireStrB}
+            onFireStart={() => { preFireStrB.current = localStrengthB; setFiringB(true); onSendCommand(peerId, 'fire', { c: 'B', v: localStrengthB + fireStrB }); }}
+            onFireStop={() => { setFiringB(false); onSendCommand(peerId, 'fire_stop', { c: 'B', v: preFireStrB.current }); }}
+          />
+        </div>
+      </Popover>
+
+      <Popover open={safetyPopOpen} onOpenChange={setSafetyPopOpen} title="个人安全设置" anchorTop={popAnchorTop}>
+        {isSelf && onSetLimit ? (
+          <div className="space-y-4">
             <div className="space-y-3">
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs text-[var(--text-soft)]">A 通道上限</span>
                   <span className="text-xs tabular-nums font-medium text-[var(--accent)]">{limitA}</span>
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={200}
-                  value={limitA}
-                  onChange={e => onSetLimit('A', Number(e.target.value))}
-                  className="w-full"
-                />
+                <input type="range" min={0} max={200} value={limitA} onChange={e => onSetLimit('A', Number(e.target.value))} className="w-full" />
               </div>
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs text-[var(--text-soft)]">B 通道上限</span>
                   <span className="text-xs tabular-nums font-medium text-[var(--accent)]">{limitB}</span>
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={200}
-                  value={limitB}
-                  onChange={e => onSetLimit('B', Number(e.target.value))}
-                  className="w-full"
-                />
+                <input type="range" min={0} max={200} value={limitB} onChange={e => onSetLimit('B', Number(e.target.value))} className="w-full" />
               </div>
+              <p className="text-[10px] text-[var(--text-faint)]">硬件级别限制，远程控制无法超过此上限</p>
             </div>
-            <p className="mt-2 text-[10px] text-[var(--text-faint)]">硬件级别限制，远程控制无法超过此上限</p>
 
-            {/* 后台行为 */}
-            <div className="mt-3 flex items-center justify-between border-t border-[var(--surface-border)] pt-3">
+            <div className="flex items-center justify-between border-t border-[var(--surface-border)] pt-3">
               <div>
                 <p className="text-xs font-medium text-[var(--text-soft)]">后台行为</p>
                 <p className="text-[10px] text-[var(--text-faint)]">切换至其他标签页时</p>
@@ -660,9 +604,13 @@ export function MemberControl({
                 {backgroundBehavior === 'stop' ? '停止输出' : '继续运行'}
               </button>
             </div>
+
+            {/* policy 与 恢复默认 由后续 task 在此追加 */}
           </div>
+        ) : (
+          <p className="text-xs text-[var(--text-faint)]">仅本人可见此设置</p>
         )}
-      </div>
+      </Popover>
     </div>
   );
 }
