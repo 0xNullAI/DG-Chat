@@ -49,7 +49,10 @@ export default function App() {
 
   const handleWaveform = useCallback((transfer: WaveformTransfer, _peerId: string) => {
     waveforms.addRemoteWaveform({
-      ...transfer.waveform,
+      id: transfer.wid,
+      name: transfer.wn,
+      description: '',
+      frames: transfer.fr,
       custom: true,
     });
   }, [waveforms.addRemoteWaveform]);
@@ -58,41 +61,46 @@ export default function App() {
     peerRoom.setWaveformHandler(handleWaveform);
   }, [peerRoom.setWaveformHandler, handleWaveform]);
 
-  const sendCommand = useCallback((target: string, action: CmdAction, data?: string) => {
-    const cmd: DeviceCommand = { target, action, data };
-    if (target === 'self') {
-      handleCommand(cmd, 'self');
-    } else {
-      peerRoom.sendCommand(target, action, data);
-    }
-  }, [peerRoom.sendCommand, handleCommand]);
+  const sendCommand = useCallback(
+    (target: string, action: CmdAction, params?: Omit<DeviceCommand, 'action'>) => {
+      const cmd: DeviceCommand = { action, ...params };
+      if (target === 'self') handleCommand(cmd, 'self');
+      else peerRoom.sendCommand(target, action, params);
+    },
+    [peerRoom.sendCommand, handleCommand],
+  );
 
-  // 定期广播自己的设备状态
+  // 高频状态：强度 / 当前波形变化时立刻广播（hook 内部 200ms 节流）
   useEffect(() => {
     if (!peerRoom.connected) return;
-    const broadcast = () => {
-      peerRoom.broadcastState({
-        peerId: 'self',
+    peerRoom.broadcastStateFast({
+      strengthA: device.strengthA,
+      strengthB: device.strengthB,
+      waveA: device.waveIdA,
+      waveB: device.waveIdB,
+    });
+  }, [peerRoom.connected, peerRoom.broadcastStateFast,
+      device.strengthA, device.strengthB, device.waveIdA, device.waveIdB]);
+
+  // 低频状态：5 秒心跳 + 名字/电量/连接/目录变化时即时同步
+  useEffect(() => {
+    if (!peerRoom.connected) return;
+    const send = () => {
+      peerRoom.broadcastStateSlow({
         displayName,
         deviceConnected: device.connected,
-        strengthA: device.strengthA,
-        strengthB: device.strengthB,
-        waveA: device.waveIdA,
-        waveB: device.waveIdB,
         battery: device.battery,
         waveformCatalog: waveformsRef.current.allWaveforms.map(w => ({
-          id: w.id,
-          name: w.name,
-          custom: !!w.custom,
+          id: w.id, name: w.name, custom: !!w.custom,
         })),
       });
     };
-    broadcast();
-    const interval = setInterval(broadcast, 2000);
-    return () => clearInterval(interval);
-  }, [peerRoom.connected, peerRoom.broadcastState, displayName,
-      device.connected, device.strengthA, device.strengthB,
-      device.waveIdA, device.waveIdB, device.battery]);
+    send();
+    const t = setInterval(send, 5000);
+    return () => clearInterval(t);
+  }, [peerRoom.connected, peerRoom.broadcastStateSlow,
+      displayName, device.connected, device.battery,
+      waveforms.allWaveforms.length]);
 
   if (!safety.accepted) {
     return <SafetyNotice onAccept={({ dontShowAgain }) => safety.accept(dontShowAgain)} />;
@@ -205,7 +213,6 @@ export default function App() {
           <ChatPanel
             messages={peerRoom.messages}
             onSend={peerRoom.sendMessage}
-            myPeerId="self"
           />
         </div>
         <div className={`${activeTab !== 'control' ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-l border-[var(--surface-border)]`}>
@@ -214,11 +221,11 @@ export default function App() {
             peers={peerRoom.peers}
             onSendCommand={sendCommand}
             onSendWaveform={peerRoom.sendWaveform}
-            displayName={displayName}
             roomId={peerRoom.roomId}
             waveforms={waveforms.allWaveforms}
             onImportWaveform={waveforms.importFile}
             onRemoveWaveform={waveforms.removeWaveform}
+            onClearWaveforms={waveforms.clearWaveforms}
             selfState={{
               peerId: 'self',
               displayName,

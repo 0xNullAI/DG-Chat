@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap, Repeat, Repeat1, Shuffle, Timer } from 'lucide-react';
-import type { CmdAction, MemberState, WaveformTransfer } from '../lib/protocol';
+import type { CmdAction, DeviceCommand, MemberState, WaveformTransfer } from '../lib/protocol';
 
 function useRepeatAction(action: () => void, initialDelay = 400, repeatInterval = 100) {
   const timerRef = useRef<number | null>(null);
@@ -46,13 +46,13 @@ import { parseImportFile, type WaveformDefinition } from '../lib/waveforms';
 interface MemberControlProps {
   peerId: string;
   member: MemberState | undefined;
-  onSendCommand: (target: string, action: CmdAction, data?: string) => void;
+  onSendCommand: (target: string, action: CmdAction, params?: Omit<DeviceCommand, 'action'>) => void;
   onSendWaveform: (targetPeerId: string, transfer: WaveformTransfer) => void;
-  displayName: string;
   onBack: () => void;
   waveforms: WaveformDefinition[];
   onImportWaveform: (file: File) => Promise<string | null>;
   onRemoveWaveform: (id: string) => void;
+  onClearWaveforms: () => void;
   isSelf: boolean;
   limitA: number;
   limitB: number;
@@ -130,8 +130,8 @@ function FireCircle({ label, strength, maxStrength, disabled, firing, onStrength
 }
 
 export function MemberControl({
-  peerId, member, onSendCommand, onSendWaveform, displayName, onBack,
-  waveforms, onImportWaveform, onRemoveWaveform,
+  peerId, member, onSendCommand, onSendWaveform, onBack,
+  waveforms, onImportWaveform, onRemoveWaveform, onClearWaveforms,
   isSelf, limitA, limitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior,
 }: MemberControlProps) {
   type PlayMode = 'single' | 'list' | 'random';
@@ -169,15 +169,31 @@ export function MemberControl({
   const setCurrentInterval = waveTab === 'A' ? setIntervalA : setIntervalB;
   const activeWaveId = waveTab === 'A' ? member?.waveA : member?.waveB;
 
-  const throttleRef = useRef<Record<string, number>>({});
-  const adjustStrength = useCallback((channel: 'A' | 'B', value: number) => {
+  // 乐观本地强度：避免 broadcastState 2 秒延迟导致 strength+1 一直基于旧值
+  const [localStrengthA, setLocalStrengthA] = useState(strengthA);
+  const [localStrengthB, setLocalStrengthB] = useState(strengthB);
+  const lastLocalAtA = useRef(0);
+  const lastLocalAtB = useRef(0);
+
+  // 远端状态变化时，若本地最近无操作（>1.5s）则采纳远端值（开火/归零/他人调整）
+  useEffect(() => {
+    if (Date.now() - lastLocalAtA.current > 1500) setLocalStrengthA(strengthA);
+  }, [strengthA]);
+  useEffect(() => {
+    if (Date.now() - lastLocalAtB.current > 1500) setLocalStrengthB(strengthB);
+  }, [strengthB]);
+
+  const adjustStrength = useCallback((channel: 'A' | 'B', delta: number) => {
     const max = channel === 'A' ? limitA : limitB;
-    const clamped = Math.max(0, Math.min(max, value));
-    const now = Date.now();
-    const key = `strength_${channel}`;
-    if (now - (throttleRef.current[key] ?? 0) < 80) return;
-    throttleRef.current[key] = now;
-    onSendCommand(peerId, 'adjust_strength', JSON.stringify({ channel, value: clamped }));
+    const setter = channel === 'A' ? setLocalStrengthA : setLocalStrengthB;
+    const stamp = channel === 'A' ? lastLocalAtA : lastLocalAtB;
+    setter(prev => {
+      const next = Math.max(0, Math.min(max, prev + delta));
+      if (next === prev) return prev;
+      stamp.current = Date.now();
+      onSendCommand(peerId, 'adjust_strength', { c: channel, v: next });
+      return next;
+    });
   }, [peerId, onSendCommand, limitA, limitB]);
 
   function toggleWaveform(w: WaveformDefinition) {
@@ -199,7 +215,7 @@ export function MemberControl({
         return newList;
       });
       if (isPlaying) {
-        onSendCommand(peerId, 'change_wave', JSON.stringify({ channel: waveTab, waveId: w.id }));
+        onSendCommand(peerId, 'change_wave', { c: waveTab, w: w.id });
       }
     }
   }
@@ -226,7 +242,7 @@ export function MemberControl({
     const { id, idx } = getNextWaveId(playlist, currentIdx, mode);
     if (!id) return;
     setIdx(idx);
-    onSendCommand(peerId, 'change_wave', JSON.stringify({ channel, waveId: id }));
+    onSendCommand(peerId, 'change_wave', { c: channel, w: id });
   }, [playlistA, playlistB, playModeA, playModeB, currentIndexA, currentIndexB, peerId, onSendCommand]);
 
   useEffect(() => {
@@ -264,10 +280,7 @@ export function MemberControl({
         return;
       }
       for (const wf of waveformList) {
-        onSendWaveform(peerId, {
-          waveform: { id: wf.id, name: wf.name, description: wf.description, frames: wf.frames },
-          fromName: displayName,
-        });
+        onSendWaveform(peerId, { wid: wf.id, wn: wf.name, fr: wf.frames });
       }
     } catch (err) {
       window.alert(err instanceof Error ? err.message : '导入失败');
@@ -310,10 +323,10 @@ export function MemberControl({
             <button
               onClick={() => {
                 if (playingA) {
-                  onSendCommand(peerId, 'stop_wave', JSON.stringify({ channel: 'A' }));
+                  onSendCommand(peerId, 'stop_wave', { c: 'A' });
                 } else if (playlistA.length > 0) {
                   const startId = playlistA[currentIndexA % playlistA.length]!;
-                  onSendCommand(peerId, 'start', JSON.stringify({ channel: 'A', waveId: startId }));
+                  onSendCommand(peerId, 'start', { c: 'A', w: startId });
                 }
               }}
               disabled={!playingA && playlistA.length === 0}
@@ -327,12 +340,12 @@ export function MemberControl({
               {playingA ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
             </button>
             <div className="channel-ring">
-              <span className="text-2xl font-bold tabular-nums text-[var(--text)]">{strengthA}</span>
+              <span className="text-2xl font-bold tabular-nums text-[var(--text)]">{localStrengthA}</span>
               <span className="text-[10px] text-[var(--text-faint)]">A:{limitA}</span>
             </div>
             <div className="mt-3 flex items-center gap-3">
-              <RepeatButton onAction={() => adjustStrength('A', strengthA - 1)} className="strength-btn">−</RepeatButton>
-              <RepeatButton onAction={() => adjustStrength('A', strengthA + 1)} className="strength-btn">+</RepeatButton>
+              <RepeatButton onAction={() => adjustStrength('A', -1)} className="strength-btn">−</RepeatButton>
+              <RepeatButton onAction={() => adjustStrength('A', +1)} className="strength-btn">+</RepeatButton>
             </div>
           </div>
 
@@ -341,10 +354,10 @@ export function MemberControl({
             <button
               onClick={() => {
                 if (playingB) {
-                  onSendCommand(peerId, 'stop_wave', JSON.stringify({ channel: 'B' }));
+                  onSendCommand(peerId, 'stop_wave', { c: 'B' });
                 } else if (playlistB.length > 0) {
                   const startId = playlistB[currentIndexB % playlistB.length]!;
-                  onSendCommand(peerId, 'start', JSON.stringify({ channel: 'B', waveId: startId }));
+                  onSendCommand(peerId, 'start', { c: 'B', w: startId });
                 }
               }}
               disabled={!playingB && playlistB.length === 0}
@@ -358,12 +371,12 @@ export function MemberControl({
               {playingB ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
             </button>
             <div className="channel-ring">
-              <span className="text-2xl font-bold tabular-nums text-[var(--text)]">{strengthB}</span>
+              <span className="text-2xl font-bold tabular-nums text-[var(--text)]">{localStrengthB}</span>
               <span className="text-[10px] text-[var(--text-faint)]">B:{limitB}</span>
             </div>
             <div className="mt-3 flex items-center gap-3">
-              <RepeatButton onAction={() => adjustStrength('B', strengthB - 1)} className="strength-btn">−</RepeatButton>
-              <RepeatButton onAction={() => adjustStrength('B', strengthB + 1)} className="strength-btn">+</RepeatButton>
+              <RepeatButton onAction={() => adjustStrength('B', -1)} className="strength-btn">−</RepeatButton>
+              <RepeatButton onAction={() => adjustStrength('B', +1)} className="strength-btn">+</RepeatButton>
             </div>
           </div>
         </div>
@@ -467,6 +480,18 @@ export function MemberControl({
               波形{currentPlaylist.length > 0 ? ` (已选 ${currentPlaylist.length})` : ''}
             </p>
             <div className="flex items-center gap-1">
+              {isSelf && waveforms.some(w => w.custom) && (
+                <button
+                  onClick={() => {
+                    if (window.confirm('确定要清空所有自定义波形吗？此操作无法撤销。')) {
+                      onClearWaveforms();
+                    }
+                  }}
+                  className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--danger)] transition-colors hover:bg-[var(--danger-soft)]"
+                >
+                  <Trash2 size={12} /> 清空
+                </button>
+              )}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
@@ -488,9 +513,12 @@ export function MemberControl({
               const inPlaylist = currentPlaylist.includes(w.id);
               const isActive = activeWaveId === w.id;
               return (
-                <button
+                <div
                   key={w.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => toggleWaveform(w)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleWaveform(w); } }}
                   className={`wave-card group ${
                     isActive ? 'selected' :
                     inPlaylist ? 'wave-card-queued' : ''
@@ -515,11 +543,12 @@ export function MemberControl({
                     <button
                       onClick={e => { e.stopPropagation(); onRemoveWaveform(w.id); }}
                       className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      title="删除波形"
                     >
                       <Trash2 size={8} />
                     </button>
                   )}
-                </button>
+                </div>
               );
             })}
           </div>
@@ -537,13 +566,13 @@ export function MemberControl({
               firing={firingA}
               onStrengthChange={setFireStrA}
               onFireStart={() => {
-                preFireStrA.current = strengthA;
+                preFireStrA.current = localStrengthA;
                 setFiringA(true);
-                onSendCommand(peerId, 'fire', JSON.stringify({ channel: 'A', targetStrength: strengthA + fireStrA }));
+                onSendCommand(peerId, 'fire', { c: 'A', v: localStrengthA + fireStrA });
               }}
               onFireStop={() => {
                 setFiringA(false);
-                onSendCommand(peerId, 'fire_stop', JSON.stringify({ channel: 'A', restoreStrength: preFireStrA.current }));
+                onSendCommand(peerId, 'fire_stop', { c: 'A', v: preFireStrA.current });
               }}
             />
             <FireCircle
@@ -554,13 +583,13 @@ export function MemberControl({
               firing={firingB}
               onStrengthChange={setFireStrB}
               onFireStart={() => {
-                preFireStrB.current = strengthB;
+                preFireStrB.current = localStrengthB;
                 setFiringB(true);
-                onSendCommand(peerId, 'fire', JSON.stringify({ channel: 'B', targetStrength: strengthB + fireStrB }));
+                onSendCommand(peerId, 'fire', { c: 'B', v: localStrengthB + fireStrB });
               }}
               onFireStop={() => {
                 setFiringB(false);
-                onSendCommand(peerId, 'fire_stop', JSON.stringify({ channel: 'B', restoreStrength: preFireStrB.current }));
+                onSendCommand(peerId, 'fire_stop', { c: 'B', v: preFireStrB.current });
               }}
             />
           </div>

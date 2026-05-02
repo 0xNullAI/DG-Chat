@@ -5,10 +5,9 @@ import type { ChatMessage } from '../lib/protocol';
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSend: (text: string) => void;
-  myPeerId: string;
 }
 
-export function ChatPanel({ messages, onSend, myPeerId }: ChatPanelProps) {
+export function ChatPanel({ messages, onSend }: ChatPanelProps) {
   const [draft, setDraft] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -36,9 +35,9 @@ export function ChatPanel({ messages, onSend, myPeerId }: ChatPanelProps) {
         )}
 
         {messages.map((msg, idx) => {
-          const isSelf = msg.sender === myPeerId;
+          const isSelf = msg.fromSelf;
           const prevMsg = idx > 0 ? messages[idx - 1] : null;
-          const sameSender = prevMsg?.sender === msg.sender;
+          const sameSender = prevMsg?.senderId === msg.senderId;
           const closeInTime = prevMsg && (msg.timestamp - prevMsg.timestamp) < 60000;
           const grouped = sameSender && closeInTime;
 
@@ -50,7 +49,7 @@ export function ChatPanel({ messages, onSend, myPeerId }: ChatPanelProps) {
               <div className="max-w-[75%]">
                 {!isSelf && !grouped && (
                   <p className="mb-0.5 px-1 text-xs text-[var(--text-faint)]">
-                    {msg.senderName || msg.sender.slice(0, 6)}
+                    {msg.senderName || msg.senderId.slice(0, 6)}
                   </p>
                 )}
                 <div
