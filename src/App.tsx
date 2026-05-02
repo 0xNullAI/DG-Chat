@@ -171,6 +171,22 @@ export default function App() {
       callApplyFire(cmd.c);
       return;
     }
+    // 强度增量：v=signed delta，owner 累加并 clamp。多控制者并发安全（每条消息都加上）。
+    // 若当前在烧，同步把 baseline 也加上，否则松开时这部分增量会被冲掉。
+    if (cmd.action === 'adjust_strength' && cmd.c && cmd.v != null) {
+      const dev = deviceRef.current;
+      const limit = cmd.c === 'A' ? dev.limitA : dev.limitB;
+      const boosts = cmd.c === 'A' ? fireBoostsA.current : fireBoostsB.current;
+      if (boosts.size > 0) {
+        const baseRef = cmd.c === 'A' ? baselineARef : baselineBRef;
+        baseRef.current = Math.max(0, Math.min(limit, baseRef.current + cmd.v));
+        callApplyFire(cmd.c); // 重算 baseline+agg → setStrength
+      } else {
+        const current = cmd.c === 'A' ? dev.strengthA : dev.strengthB;
+        dev.setStrength(cmd.c, Math.max(0, Math.min(limit, current + cmd.v)));
+      }
+      return;
+    }
 
     const ctx: CommandContext = {
       device: deviceRef.current.connected ? (deviceRef.current as unknown as CommandContext['device']) : null,

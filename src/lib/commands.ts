@@ -48,13 +48,6 @@ export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string
       } catch { return '无法播放蜂鸣'; }
     }
 
-    case 'adjust_strength': {
-      if (!dev) return '未连接蓝牙设备';
-      if (!cmd.c || cmd.v == null) return '强度参数缺失';
-      dev.setStrength(cmd.c, cmd.v);
-      return `${cmd.c} 通道强度已调整为 ${cmd.v}`;
-    }
-
     case 'change_wave':
     case 'start': {
       if (!dev) return '未连接蓝牙设备';
@@ -76,31 +69,17 @@ export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string
       dev.stopWave(cmd.c);
       return `${cmd.c} 通道已暂停`;
 
-    case 'fire':
-      if (!dev) return '未连接蓝牙设备';
-      if (!cmd.c || cmd.v == null) return '开火参数缺失';
-      dev.setStrength(cmd.c, cmd.v);
-      return `${cmd.c} 开火 强度${cmd.v}`;
-
-    case 'fire_stop':
-      if (!dev) return '未连接蓝牙设备';
-      if (!cmd.c || cmd.v == null) return '参数缺失';
-      dev.setStrength(cmd.c, cmd.v);
-      return `${cmd.c} 开火停止`;
-
     case 'burst':
       if (!dev) return '未连接蓝牙设备';
       return '脉冲已发送';
 
+    case 'adjust_strength':
     case 'set_queue':
     case 'set_play_mode':
     case 'set_interval':
-      // 由 App.tsx 拦截：这些命令更新本机权威队列状态，由 broadcastStateSlow 同步给所有人。
-      return '';
-
     case 'fire_active':
     case 'fire_release':
-      // 由 App.tsx 拦截：进聚合系统，由 owner 端权威 setStrength。
+      // 由 App.tsx 拦截：owner 端权威状态变更（强度增量 / 队列 / 开火聚合），由 broadcastState* 同步给所有人。
       return '';
 
     default:

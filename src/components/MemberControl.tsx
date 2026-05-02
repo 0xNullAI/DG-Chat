@@ -224,9 +224,10 @@ export function MemberControl({
     const stamp = channel === 'A' ? lastLocalAtA : lastLocalAtB;
     setter(prev => {
       const next = Math.max(0, Math.min(max, prev + delta));
-      if (next === prev) return prev;
+      const sent = next - prev; // 实际发出的 delta（被本地 limit 削过）
+      if (sent === 0) return prev;
       stamp.current = Date.now();
-      onSendCommand(peerId, 'adjust_strength', { c: channel, v: next });
+      onSendCommand(peerId, 'adjust_strength', { c: channel, v: sent });
       return next;
     });
   }, [peerId, onSendCommand, limitA, limitB]);

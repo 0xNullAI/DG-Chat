@@ -11,13 +11,11 @@ export interface ChatMessage {
 }
 
 export type CmdAction =
-  | 'adjust_strength'
+  | 'adjust_strength'  // v=signed delta；owner 端 prev+delta 累加并 clamp 到 [0, limit]，多控制者安全
   | 'change_wave'
   | 'start'
   | 'stop'
   | 'stop_wave'
-  | 'fire'
-  | 'fire_stop'
   | 'burst'
   | 'vibrate'
   | 'alert'
@@ -40,7 +38,7 @@ export interface DeviceCommand {
   action: CmdAction;
   /** channel: 'A' | 'B' */
   c?: 'A' | 'B';
-  /** numeric value: strength / targetStrength / restoreStrength */
+  /** numeric value: adjust_strength=delta; fire_active=boost; fire=absolute（已废弃） */
   v?: number;
   /** waveform id */
   w?: string;

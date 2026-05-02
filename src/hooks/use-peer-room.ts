@@ -65,8 +65,7 @@ const selfId = generatePeerId();
  *    每 PRESENCE_INTERVAL_MS 一次心跳，PRESENCE_TIMEOUT_MS 没收到就 removePeer
  */
 const RELIABLE_ACTIONS = new Set<CmdAction>([
-  'change_wave', 'start', 'stop', 'stop_wave',
-  'fire', 'fire_stop', 'burst',
+  'change_wave', 'start', 'stop', 'stop_wave', 'burst',
   'vibrate', 'alert', 'bg', 'shake', 'beep',
   'fire_release',
   'set_queue', 'set_play_mode', 'set_interval',
