@@ -228,6 +228,8 @@ export function usePeerRoom(displayName: string) {
                 strengthB: (data.sb as number) ?? cur.strengthB,
                 waveA: (data.wa as string | null) ?? null,
                 waveB: (data.wb as string | null) ?? null,
+                firingA: (data.fA as boolean) ?? cur.firingA,
+                firingB: (data.fB as boolean) ?? cur.firingB,
               });
               return next;
             });
@@ -315,6 +317,7 @@ export function usePeerRoom(displayName: string) {
       publishAll(`dg-chat/r/${room}/sf`, JSON.stringify({
         _from: selfId, _id: shortId(),
         sa: state.strengthA, sb: state.strengthB, wa: state.waveA, wb: state.waveB,
+        fA: state.firingA, fB: state.firingB,
       }), 0);
     };
     const ref = fastThrottleRef.current;
@@ -439,5 +442,7 @@ function emptyMember(peerId: string): MemberState {
     intervalB: 30,
     currentIndexA: 0,
     currentIndexB: 0,
+    firingA: false,
+    firingB: false,
   };
 }

@@ -26,7 +26,9 @@ export type CmdAction =
   | 'beep'
   | 'set_queue'
   | 'set_play_mode'
-  | 'set_interval';
+  | 'set_interval'
+  | 'fire_press'      // 控制者按下：v=boost
+  | 'fire_release';   // 控制者松开：清空本人贡献
 
 export type PlayMode = 'single' | 'list' | 'random';
 
@@ -90,6 +92,9 @@ export interface MemberState {
   intervalB: number;
   currentIndexA: number;
   currentIndexB: number;
+  // —— 开火状态新增 ——
+  firingA: boolean;
+  firingB: boolean;
 }
 
 /** 高频字段：强度 + 当前波形 ID。任一变化触发立即广播。 */
@@ -98,6 +103,9 @@ export interface StateFast {
   strengthB: number;
   waveA: string | null;
   waveB: string | null;
+  // —— 开火状态新增 ——
+  firingA: boolean;
+  firingB: boolean;
 }
 
 /** 低频字段：名字、设备连接、电量、波形目录。5 秒心跳。 */
