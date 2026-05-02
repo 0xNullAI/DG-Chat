@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap, Repeat, Repeat1, Shuffle, Timer } from 'lucide-react';
+import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap, Repeat, Repeat1, Shuffle, Timer, Settings } from 'lucide-react';
 import type { CmdAction, DeviceCommand, MemberState, WaveformTransfer } from '../lib/protocol';
 
 function useRepeatAction(action: () => void, initialDelay = 400, repeatInterval = 100) {
@@ -42,6 +42,7 @@ function RepeatButton({ onAction, className, children }: {
   );
 }
 import { parseImportFile, type WaveformDefinition } from '../lib/waveforms';
+import { Popover } from './Popover';
 
 interface MemberControlProps {
   peerId: string;
@@ -52,13 +53,15 @@ interface MemberControlProps {
   waveforms: WaveformDefinition[];
   onImportWaveform: (file: File) => Promise<string | null>;
   onRemoveWaveform: (id: string) => void;
-  onClearWaveforms: () => void;
+  onRestoreDefaults: () => void;
   isSelf: boolean;
   limitA: number;
   limitB: number;
   onSetLimit?: (channel: 'A' | 'B', value: number) => void;
   backgroundBehavior: 'stop' | 'keep';
   onSetBackgroundBehavior?: (mode: 'stop' | 'keep') => void;
+  firePolicy: 'sum' | 'max' | 'avg';
+  onSetFirePolicy: (p: 'sum' | 'max' | 'avg') => void;
 }
 
 const RING_R = 46;
@@ -131,10 +134,50 @@ function FireCircle({ label, strength, maxStrength, disabled, firing, onStrength
 
 export function MemberControl({
   peerId, member, onSendCommand, onSendWaveform, onBack,
-  waveforms, onImportWaveform, onRemoveWaveform, onClearWaveforms,
+  waveforms, onImportWaveform, onRemoveWaveform, onRestoreDefaults,
   isSelf, limitA, limitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior,
+  firePolicy, onSetFirePolicy,
 }: MemberControlProps) {
   const [waveTab, setWaveTab] = useState<'A' | 'B'>('A');
+  const [firePopOpen, setFirePopOpen] = useState(false);
+  const [safetyPopOpen, setSafetyPopOpen] = useState(false);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [popAnchorTop, setPopAnchorTop] = useState(0);
+
+  useEffect(() => {
+    const measure = () => {
+      const r = headerRef.current?.getBoundingClientRect();
+      if (r) setPopAnchorTop(r.bottom + 4);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  // 开火心跳：按住期间每 300ms 发一次 fire_active；松开/卸载时清 interval 并发一次 fire_release 加速回落。
+  // 任何异常（页面关闭、popover 突然 unmount、丢包）：心跳停 → owner 端 reaper 800ms 内自动归零。
+  const heartbeatARef = useRef<number | null>(null);
+  const heartbeatBRef = useRef<number | null>(null);
+  const startFireHeartbeat = useCallback((channel: 'A' | 'B', boost: number) => {
+    const ref = channel === 'A' ? heartbeatARef : heartbeatBRef;
+    if (ref.current != null) return;
+    onSendCommand(peerId, 'fire_active', { c: channel, v: boost });
+    ref.current = window.setInterval(() => {
+      onSendCommand(peerId, 'fire_active', { c: channel, v: boost });
+    }, 300);
+  }, [peerId, onSendCommand]);
+  const stopFireHeartbeat = useCallback((channel: 'A' | 'B') => {
+    const ref = channel === 'A' ? heartbeatARef : heartbeatBRef;
+    if (ref.current == null) return;
+    clearInterval(ref.current);
+    ref.current = null;
+    onSendCommand(peerId, 'fire_release', { c: channel });
+  }, [peerId, onSendCommand]);
+  // 组件卸载时停掉所有心跳并发 release（popover 关闭、用户切换 member、整个 panel unmount 都走这里）
+  useEffect(() => () => {
+    if (heartbeatARef.current != null) { clearInterval(heartbeatARef.current); onSendCommand(peerId, 'fire_release', { c: 'A' }); }
+    if (heartbeatBRef.current != null) { clearInterval(heartbeatBRef.current); onSendCommand(peerId, 'fire_release', { c: 'B' }); }
+  }, [peerId, onSendCommand]);
   const playlistA       = member?.queueA ?? [];
   const playlistB       = member?.queueB ?? [];
   const playModeA       = member?.playModeA ?? 'single';
@@ -145,10 +188,8 @@ export function MemberControl({
   const currentIndexB   = member?.currentIndexB ?? 0;
   const [fireStrA, setFireStrA] = useState(0);
   const [fireStrB, setFireStrB] = useState(0);
-  const [firingA, setFiringA] = useState(false);
-  const [firingB, setFiringB] = useState(false);
-  const preFireStrA = useRef(0);
-  const preFireStrB = useRef(0);
+  const firingA = !!member?.firingA;
+  const firingB = !!member?.firingB;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const name = member?.displayName || peerId.slice(0, 8);
@@ -183,9 +224,10 @@ export function MemberControl({
     const stamp = channel === 'A' ? lastLocalAtA : lastLocalAtB;
     setter(prev => {
       const next = Math.max(0, Math.min(max, prev + delta));
-      if (next === prev) return prev;
+      const sent = next - prev; // 实际发出的 delta（被本地 limit 削过）
+      if (sent === 0) return prev;
       stamp.current = Date.now();
-      onSendCommand(peerId, 'adjust_strength', { c: channel, v: next });
+      onSendCommand(peerId, 'adjust_strength', { c: channel, v: sent });
       return next;
     });
   }, [peerId, onSendCommand, limitA, limitB]);
@@ -263,11 +305,11 @@ export function MemberControl({
             {currentPlaylist.indexOf(w.id) + 1}
           </span>
         )}
-        {isSelf && w.custom && !inPlaylist && (
+        {isSelf && !inPlaylist && (
           <button
             onClick={e => { e.stopPropagation(); onRemoveWaveform(w.id); }}
             className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white opacity-0 transition-opacity group-hover:opacity-100"
-            title="删除波形"
+            title={w.custom ? '删除自定义波形' : '隐藏内置波形'}
           >
             <Trash2 size={8} />
           </button>
@@ -279,7 +321,7 @@ export function MemberControl({
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-3">
+      <div ref={headerRef} className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-3">
         <button
           onClick={onBack}
           className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-soft)] transition-colors hover:bg-[var(--bg-soft)]"
@@ -441,24 +483,52 @@ export function MemberControl({
               <Shuffle size={13} /> 随机
             </button>
           </div>
-          {currentPlayMode !== 'single' && (
-            <div className="flex items-center gap-1.5">
-              <Timer size={12} className="text-[var(--text-faint)]" />
-              <select
-                value={currentInterval}
-                onChange={e => onSendCommand(peerId, 'set_interval', { c: waveTab, iv: Number(e.target.value) })}
-                className="rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-1.5 py-0.5 text-[11px] text-[var(--text)] outline-none"
+          <div className="flex items-center gap-1">
+            {currentPlayMode !== 'single' && (
+              <div className="mr-1 flex items-center gap-1.5">
+                <Timer size={12} className="text-[var(--text-faint)]" />
+                <select
+                  value={currentInterval}
+                  onChange={e => onSendCommand(peerId, 'set_interval', { c: waveTab, iv: Number(e.target.value) })}
+                  className="rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-1.5 py-0.5 text-[11px] text-[var(--text)] outline-none"
+                >
+                  <option value={10}>10秒</option>
+                  <option value={20}>20秒</option>
+                  <option value={30}>30秒</option>
+                  <option value={60}>1分钟</option>
+                  <option value={120}>2分钟</option>
+                  <option value={300}>5分钟</option>
+                  <option value={600}>10分钟</option>
+                </select>
+              </div>
+            )}
+            <button
+              onClick={() => setFirePopOpen(v => !v)}
+              className={`flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] transition-colors ${
+                firePopOpen
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'text-[var(--text-faint)] hover:bg-[var(--bg-soft)] hover:text-[var(--text-soft)]'
+              }`}
+              title="一键开火"
+              aria-label="一键开火"
+            >
+              <Zap size={14} />
+            </button>
+            {isSelf && (
+              <button
+                onClick={() => setSafetyPopOpen(v => !v)}
+                className={`flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] transition-colors ${
+                  safetyPopOpen
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                    : 'text-[var(--text-faint)] hover:bg-[var(--bg-soft)] hover:text-[var(--text-soft)]'
+                }`}
+                title="个人安全设置"
+                aria-label="个人安全设置"
               >
-                <option value={10}>10秒</option>
-                <option value={20}>20秒</option>
-                <option value={30}>30秒</option>
-                <option value={60}>1分钟</option>
-                <option value={120}>2分钟</option>
-                <option value={300}>5分钟</option>
-                <option value={600}>10分钟</option>
-              </select>
-            </div>
-          )}
+                <Settings size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* ==================== Waveform Grid ==================== */}
@@ -468,18 +538,6 @@ export function MemberControl({
               波形{currentPlaylist.length > 0 ? ` (已选 ${currentPlaylist.length})` : ''}
             </p>
             <div className="flex items-center gap-1">
-              {isSelf && waveforms.some(w => w.custom) && (
-                <button
-                  onClick={() => {
-                    if (window.confirm('确定要清空所有自定义波形吗？此操作无法撤销。')) {
-                      onClearWaveforms();
-                    }
-                  }}
-                  className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--danger)] transition-colors hover:bg-[var(--danger-soft)]"
-                >
-                  <Trash2 size={12} /> 清空
-                </button>
-              )}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
@@ -500,116 +558,62 @@ export function MemberControl({
           {(() => {
             const builtins = waveforms.filter(w => !w.custom);
             const customs  = waveforms.filter(w =>  w.custom);
-            const activeName =
-              waveforms.find(w => w.id === activeWaveId)?.name ?? null;
-            const customsHasActive = customs.some(w => w.id === activeWaveId);
-
             return (
               <>
-                <div className="grid grid-cols-4 gap-2">
-                  {builtins.map(renderCard)}
-                </div>
-
+                <div className="grid grid-cols-4 gap-2">{builtins.map(renderCard)}</div>
                 {customs.length > 0 && (
-                  <details className="mt-3 group" open={customsHasActive}>
-                    <summary className="flex cursor-pointer items-center justify-between rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-soft)] hover:bg-[var(--bg-soft)] select-none">
-                      <span>
-                        自定义波形（{customs.length}）
-                        {activeName && customs.some(w => w.id === activeWaveId) && (
-                          <span className="ml-2 text-[var(--accent)]">· 当前：{activeName}</span>
-                        )}
-                      </span>
-                      <span className="text-[var(--text-faint)] transition-transform group-open:rotate-90">›</span>
-                    </summary>
-                    <div className="mt-2 grid grid-cols-4 gap-2">
-                      {customs.map(renderCard)}
-                    </div>
-                  </details>
+                  <>
+                    <p className="mt-3 mb-2 text-[11px] text-[var(--text-faint)]">自定义波形（{customs.length}）</p>
+                    <div className="grid grid-cols-4 gap-2">{customs.map(renderCard)}</div>
+                  </>
                 )}
               </>
             );
           })()}
         </div>
 
-        {/* ==================== Fire Buttons ==================== */}
-        <div className="mt-5">
-          <p className="mb-3 text-center text-xs text-[var(--text-faint)]">一键开火（按住增加强度，松开恢复）</p>
-          <div className="flex items-center justify-center gap-8">
-            <FireCircle
-              label="A"
-              strength={fireStrA}
-              maxStrength={limitA}
-              disabled={false}
-              firing={firingA}
-              onStrengthChange={setFireStrA}
-              onFireStart={() => {
-                preFireStrA.current = localStrengthA;
-                setFiringA(true);
-                onSendCommand(peerId, 'fire', { c: 'A', v: localStrengthA + fireStrA });
-              }}
-              onFireStop={() => {
-                setFiringA(false);
-                onSendCommand(peerId, 'fire_stop', { c: 'A', v: preFireStrA.current });
-              }}
-            />
-            <FireCircle
-              label="B"
-              strength={fireStrB}
-              maxStrength={limitB}
-              disabled={false}
-              firing={firingB}
-              onStrengthChange={setFireStrB}
-              onFireStart={() => {
-                preFireStrB.current = localStrengthB;
-                setFiringB(true);
-                onSendCommand(peerId, 'fire', { c: 'B', v: localStrengthB + fireStrB });
-              }}
-              onFireStop={() => {
-                setFiringB(false);
-                onSendCommand(peerId, 'fire_stop', { c: 'B', v: preFireStrB.current });
-              }}
-            />
-          </div>
-        </div>
+      </div>
 
-        {/* ==================== Strength Limit (self only) ==================== */}
-        {isSelf && onSetLimit && (
-          <div className="mt-6 rounded-[var(--radius-md)] border border-[var(--surface-border)] bg-[var(--bg-elevated)] p-4">
-            <p className="mb-3 text-xs font-medium text-[var(--text-soft)]">强度上限（仅自己可见）</p>
+      <Popover open={firePopOpen} onOpenChange={setFirePopOpen} title="一键开火" anchorTop={popAnchorTop}>
+        <p className="mb-3 text-center text-xs text-[var(--text-faint)]">按住增加强度，松开恢复</p>
+        <div className="flex items-center justify-center gap-8">
+          <FireCircle
+            label="A" strength={fireStrA} maxStrength={limitA} disabled={false} firing={firingA}
+            onStrengthChange={setFireStrA}
+            onFireStart={() => startFireHeartbeat('A', fireStrA)}
+            onFireStop={() => stopFireHeartbeat('A')}
+          />
+          <FireCircle
+            label="B" strength={fireStrB} maxStrength={limitB} disabled={false} firing={firingB}
+            onStrengthChange={setFireStrB}
+            onFireStart={() => startFireHeartbeat('B', fireStrB)}
+            onFireStop={() => stopFireHeartbeat('B')}
+          />
+        </div>
+      </Popover>
+
+      <Popover open={safetyPopOpen} onOpenChange={setSafetyPopOpen} title="个人安全设置" anchorTop={popAnchorTop}>
+        {isSelf && onSetLimit ? (
+          <div className="space-y-4">
             <div className="space-y-3">
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs text-[var(--text-soft)]">A 通道上限</span>
                   <span className="text-xs tabular-nums font-medium text-[var(--accent)]">{limitA}</span>
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={200}
-                  value={limitA}
-                  onChange={e => onSetLimit('A', Number(e.target.value))}
-                  className="w-full"
-                />
+                <input type="range" min={0} max={200} value={limitA} onChange={e => onSetLimit('A', Number(e.target.value))} className="w-full" />
               </div>
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs text-[var(--text-soft)]">B 通道上限</span>
                   <span className="text-xs tabular-nums font-medium text-[var(--accent)]">{limitB}</span>
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={200}
-                  value={limitB}
-                  onChange={e => onSetLimit('B', Number(e.target.value))}
-                  className="w-full"
-                />
+                <input type="range" min={0} max={200} value={limitB} onChange={e => onSetLimit('B', Number(e.target.value))} className="w-full" />
               </div>
+              <p className="text-[10px] text-[var(--text-faint)]">硬件级别限制，远程控制无法超过此上限</p>
             </div>
-            <p className="mt-2 text-[10px] text-[var(--text-faint)]">硬件级别限制，远程控制无法超过此上限</p>
 
-            {/* 后台行为 */}
-            <div className="mt-3 flex items-center justify-between border-t border-[var(--surface-border)] pt-3">
+            <div className="flex items-center justify-between border-t border-[var(--surface-border)] pt-3">
               <div>
                 <p className="text-xs font-medium text-[var(--text-soft)]">后台行为</p>
                 <p className="text-[10px] text-[var(--text-faint)]">切换至其他标签页时</p>
@@ -625,9 +629,47 @@ export function MemberControl({
                 {backgroundBehavior === 'stop' ? '停止输出' : '继续运行'}
               </button>
             </div>
+
+            <div className="border-t border-[var(--surface-border)] pt-3">
+              <p className="mb-2 text-xs font-medium text-[var(--text-soft)]">多人开火聚合策略</p>
+              <div className="flex gap-1">
+                {(['max', 'sum', 'avg'] as const).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => onSetFirePolicy(p)}
+                    className={`flex-1 rounded-[var(--radius-sm)] py-1.5 text-xs transition-colors ${
+                      firePolicy === p
+                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                        : 'border border-[var(--surface-border)] text-[var(--text-soft)] hover:bg-[var(--bg-soft)]'
+                    }`}
+                  >
+                    {p === 'max' ? '取最大' : p === 'sum' ? '叠加' : '平均'}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-[10px] text-[var(--text-faint)]">
+                取最大：任意控制者按下都不超过其单人份。叠加：多人累计（受上限封顶）。平均：多人按时反而稀释。
+              </p>
+            </div>
+
+            <div className="border-t border-[var(--surface-border)] pt-3">
+              <button
+                onClick={() => {
+                  if (window.confirm('恢复默认波形：清空全部自定义波形并取消隐藏所有内置波形。此操作无法撤销。')) {
+                    onRestoreDefaults();
+                  }
+                }}
+                className="flex h-9 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--surface-border)] text-xs font-medium text-[var(--text-soft)] hover:bg-[var(--bg-soft)]"
+              >
+                <RotateCcw size={13} /> 恢复默认波形
+              </button>
+              <p className="mt-1 text-[10px] text-[var(--text-faint)]">清空自定义 + 取消隐藏内置</p>
+            </div>
           </div>
+        ) : (
+          <p className="text-xs text-[var(--text-faint)]">仅本人可见此设置</p>
         )}
-      </div>
+      </Popover>
     </div>
   );
 }

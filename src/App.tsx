@@ -47,6 +47,38 @@ function useChannelRotation(
   }, [channel, waveId, queue, mode, intervalSec, setIndex, deviceRef, waveformsRef]);
 }
 
+type FirePolicy = 'sum' | 'max' | 'avg';
+
+function aggregate(boosts: Map<string, { boost: number; ts: number }>, policy: FirePolicy): number {
+  if (boosts.size === 0) return 0;
+  const arr = Array.from(boosts.values()).map(x => x.boost);
+  if (policy === 'sum') return arr.reduce((a, b) => a + b, 0);
+  if (policy === 'max') return Math.max(...arr);
+  return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
+}
+
+interface FireApplyDeps {
+  channel: 'A' | 'B';
+  boosts: Map<string, { boost: number; ts: number }>;
+  baseline: number;
+  device: { connected: boolean; limitA: number; limitB: number; setStrength: (c: 'A' | 'B', v: number) => void };
+  policy: FirePolicy;
+  setFiring: (v: boolean) => void;
+}
+
+function applyFire(d: FireApplyDeps) {
+  if (!d.device.connected) return;
+  const limit = d.channel === 'A' ? d.device.limitA : d.device.limitB;
+  if (d.boosts.size === 0) {
+    d.device.setStrength(d.channel, d.baseline);
+    d.setFiring(false);
+    return;
+  }
+  const agg = aggregate(d.boosts, d.policy);
+  d.device.setStrength(d.channel, Math.min(limit, d.baseline + agg));
+  d.setFiring(true);
+}
+
 export default function App() {
   const [displayName, setDisplayName] = useState(() =>
     localStorage.getItem('dg-chat-name') ?? ''
@@ -65,6 +97,13 @@ export default function App() {
   const [currentIndexA, setCurrentIndexA] = useState(0);
   const [currentIndexB, setCurrentIndexB] = useState(0);
 
+  const fireBoostsA = useRef<Map<string, { boost: number; ts: number }>>(new Map());
+  const fireBoostsB = useRef<Map<string, { boost: number; ts: number }>>(new Map());
+  const baselineARef = useRef(0);
+  const baselineBRef = useRef(0);
+  const [firingA, setFiringA] = useState(false);
+  const [firingB, setFiringB] = useState(false);
+
   const safety = useSafetyAccepted();
   const peerRoom = usePeerRoom(displayName);
   const device = useDevice();
@@ -76,12 +115,23 @@ export default function App() {
   const waveformsRef = useRef(waveforms);
   waveformsRef.current = waveforms;
 
+  const callApplyFire = useCallback((channel: 'A' | 'B') => {
+    applyFire({
+      channel,
+      boosts: channel === 'A' ? fireBoostsA.current : fireBoostsB.current,
+      baseline: channel === 'A' ? baselineARef.current : baselineBRef.current,
+      device: deviceRef.current as unknown as FireApplyDeps['device'],
+      policy: deviceRef.current.firePolicyRef.current,
+      setFiring: channel === 'A' ? setFiringA : setFiringB,
+    });
+  }, []);
+
   useEffect(() => {
     if (displayName) localStorage.setItem('dg-chat-name', displayName);
   }, [displayName]);
 
   // 注册远程指令处理器
-  const handleCommand = useCallback((cmd: DeviceCommand, _peerId: string) => {
+  const handleCommand = useCallback((cmd: DeviceCommand, peerId: string) => {
     // 队列意图：更新本机权威状态。由 broadcastStateSlow 在 effect 里同步给所有人。
     // 队列变更后若当前在播波形仍在新队列里，把 index 对齐到它，避免 index 与播放短暂不一致。
     if (cmd.action === 'set_queue' && cmd.c && cmd.q) {
@@ -103,13 +153,47 @@ export default function App() {
       else               setIntervalBSec(cmd.iv);
       return;
     }
+    if (cmd.action === 'fire_active' && cmd.c && cmd.v != null) {
+      const map = cmd.c === 'A' ? fireBoostsA.current : fireBoostsB.current;
+      if (map.size === 0) {
+        // 从空到非空的边沿：抓 baseline 快照
+        const dev = deviceRef.current;
+        if (cmd.c === 'A') baselineARef.current = dev.strengthA;
+        else               baselineBRef.current = dev.strengthB;
+      }
+      map.set(peerId, { boost: cmd.v, ts: Date.now() });
+      callApplyFire(cmd.c);
+      return;
+    }
+    if (cmd.action === 'fire_release' && cmd.c) {
+      const map = cmd.c === 'A' ? fireBoostsA.current : fireBoostsB.current;
+      map.delete(peerId);
+      callApplyFire(cmd.c);
+      return;
+    }
+    // 强度增量：v=signed delta，owner 累加并 clamp。多控制者并发安全（每条消息都加上）。
+    // 若当前在烧，同步把 baseline 也加上，否则松开时这部分增量会被冲掉。
+    if (cmd.action === 'adjust_strength' && cmd.c && cmd.v != null) {
+      const dev = deviceRef.current;
+      const limit = cmd.c === 'A' ? dev.limitA : dev.limitB;
+      const boosts = cmd.c === 'A' ? fireBoostsA.current : fireBoostsB.current;
+      if (boosts.size > 0) {
+        const baseRef = cmd.c === 'A' ? baselineARef : baselineBRef;
+        baseRef.current = Math.max(0, Math.min(limit, baseRef.current + cmd.v));
+        callApplyFire(cmd.c); // 重算 baseline+agg → setStrength
+      } else {
+        const current = cmd.c === 'A' ? dev.strengthA : dev.strengthB;
+        dev.setStrength(cmd.c, Math.max(0, Math.min(limit, current + cmd.v)));
+      }
+      return;
+    }
 
     const ctx: CommandContext = {
       device: deviceRef.current.connected ? (deviceRef.current as unknown as CommandContext['device']) : null,
       getWaveform: waveformsRef.current.getWaveform,
     };
     executeCommand(cmd, ctx);
-  }, []);
+  }, [callApplyFire]);
 
   useEffect(() => {
     peerRoom.setCommandHandler(handleCommand);
@@ -146,9 +230,12 @@ export default function App() {
       strengthB: device.strengthB,
       waveA: device.waveIdA,
       waveB: device.waveIdB,
+      firingA,
+      firingB,
     });
   }, [peerRoom.connected, peerRoom.broadcastStateFast,
-      device.strengthA, device.strengthB, device.waveIdA, device.waveIdB]);
+      device.strengthA, device.strengthB, device.waveIdA, device.waveIdB,
+      firingA, firingB]);
 
   // 低频状态：5 秒心跳 + 名字/电量/连接/目录变化时即时同步
   useEffect(() => {
@@ -179,6 +266,24 @@ export default function App() {
   // A/B 通道：被控方权威定时切换（自己持有真值）
   useChannelRotation('A', device.waveIdA, queueA, playModeA, intervalASec, setCurrentIndexA, deviceRef, waveformsRef);
   useChannelRotation('B', device.waveIdB, queueB, playModeB, intervalBSec, setCurrentIndexB, deviceRef, waveformsRef);
+
+  // 心跳过期 reaper：fire_active 每 300ms 一次，超过 800ms 没刷新即视作松开。
+  // 正常松开走 fire_release QoS 1 立即回落；任何异常路径（页面关闭/丢包/崩溃）由这里兜底，最坏 ~1s 内归零。
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      const now = Date.now();
+      let dirtyA = false, dirtyB = false;
+      fireBoostsA.current.forEach((v, k) => {
+        if (now - v.ts > 800) { fireBoostsA.current.delete(k); dirtyA = true; }
+      });
+      fireBoostsB.current.forEach((v, k) => {
+        if (now - v.ts > 800) { fireBoostsB.current.delete(k); dirtyB = true; }
+      });
+      if (dirtyA) callApplyFire('A');
+      if (dirtyB) callApplyFire('B');
+    }, 200);
+    return () => clearInterval(t);
+  }, [callApplyFire]);
 
   if (!safety.accepted) {
     return <SafetyNotice onAccept={({ dontShowAgain }) => safety.accept(dontShowAgain)} />;
@@ -304,7 +409,7 @@ export default function App() {
             waveforms={waveforms.allWaveforms}
             onImportWaveform={waveforms.importFile}
             onRemoveWaveform={waveforms.removeWaveform}
-            onClearWaveforms={waveforms.clearWaveforms}
+            onRestoreDefaults={waveforms.restoreDefaults}
             selfState={{
               peerId: 'self',
               displayName,
@@ -318,12 +423,16 @@ export default function App() {
               playModeA, playModeB,
               intervalA: intervalASec, intervalB: intervalBSec,
               currentIndexA, currentIndexB,
+              firingA,
+              firingB,
             } satisfies MemberState}
             selfLimitA={device.limitA}
             selfLimitB={device.limitB}
             onSetLimit={device.setLimit}
             backgroundBehavior={device.backgroundBehavior}
             onSetBackgroundBehavior={device.setBackgroundBehavior}
+            firePolicy={device.firePolicy}
+            onSetFirePolicy={device.setFirePolicy}
           />
         </div>
       </div>

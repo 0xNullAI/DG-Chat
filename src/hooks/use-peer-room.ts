@@ -41,11 +41,34 @@ function generatePeerId(): string {
 
 const selfId = generatePeerId();
 
-/** Actions 中需要可靠送达的（QoS 1）。adjust_strength 走 QoS 0：高频，最新覆盖前者。 */
+/**
+ * 传输模型（统一）：
+ *
+ * 1. 状态广播 owner→all（持续真值）
+ *    - state.fast (sf): strength/wave/firing — 200ms 节流，QoS 0；事件驱动 + 心跳被替代
+ *    - state.slow (ss): name/battery/queue/playMode/interval/currentIndex — 5s 心跳 + 即时变化，QoS 0
+ *
+ * 2. 边沿一次性命令 controller→owner（QoS 1，必须送达）
+ *    change_wave / start / stop / stop_wave / burst /
+ *    fire / fire_stop（旧版兼容） /
+ *    vibrate / alert / bg / shake / beep /
+ *    set_queue / set_play_mode / set_interval /
+ *    fire_release（快速松开路径，让 owner 立刻回落而不必等心跳过期）
+ *
+ * 3. 心跳命令 controller→owner（QoS 0，按周期重发）
+ *    fire_active — 控制者按住期间每 300ms 一次；owner 端 800ms 没刷新即视作松开
+ *
+ * 4. 高频流命令 controller→owner（QoS 0，最新覆盖前者）
+ *    adjust_strength — 配合控制者乐观本地 + 1.5s grace 重新采纳远端
+ *
+ * 5. Presence peer→all（QoS 0）
+ *    每 PRESENCE_INTERVAL_MS 一次心跳，PRESENCE_TIMEOUT_MS 没收到就 removePeer
+ */
 const RELIABLE_ACTIONS = new Set<CmdAction>([
-  'change_wave', 'start', 'stop', 'stop_wave',
-  'fire', 'fire_stop', 'burst',
+  'change_wave', 'start', 'stop', 'stop_wave', 'burst',
   'vibrate', 'alert', 'bg', 'shake', 'beep',
+  'fire_release',
+  'set_queue', 'set_play_mode', 'set_interval',
 ]);
 
 export function usePeerRoom(displayName: string) {
@@ -228,6 +251,8 @@ export function usePeerRoom(displayName: string) {
                 strengthB: (data.sb as number) ?? cur.strengthB,
                 waveA: (data.wa as string | null) ?? null,
                 waveB: (data.wb as string | null) ?? null,
+                firingA: (data.fA as boolean) ?? cur.firingA,
+                firingB: (data.fB as boolean) ?? cur.firingB,
               });
               return next;
             });
@@ -315,6 +340,7 @@ export function usePeerRoom(displayName: string) {
       publishAll(`dg-chat/r/${room}/sf`, JSON.stringify({
         _from: selfId, _id: shortId(),
         sa: state.strengthA, sb: state.strengthB, wa: state.waveA, wb: state.waveB,
+        fA: state.firingA, fB: state.firingB,
       }), 0);
     };
     const ref = fastThrottleRef.current;
@@ -439,5 +465,7 @@ function emptyMember(peerId: string): MemberState {
     intervalB: 30,
     currentIndexA: 0,
     currentIndexB: 0,
+    firingA: false,
+    firingB: false,
   };
 }

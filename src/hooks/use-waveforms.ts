@@ -7,18 +7,26 @@ import {
   type WaveformDefinition,
 } from '../lib/waveforms';
 
+const HIDDEN_KEY = 'dg-chat-hidden-builtins';
+
+function loadHiddenBuiltins(): string[] {
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch { return []; }
+}
+
 export function useWaveforms() {
-  const [customWaveforms, setCustomWaveforms] = useState<WaveformDefinition[]>(() =>
-    loadCustomWaveforms()
-  );
+  const [customWaveforms, setCustomWaveforms] = useState<WaveformDefinition[]>(() => loadCustomWaveforms());
+  const [hiddenBuiltinIds, setHiddenBuiltinIds] = useState<string[]>(() => loadHiddenBuiltins());
 
-  // All waveforms = builtin + custom
-  const allWaveforms = [...BUILTIN_WAVEFORMS, ...customWaveforms];
+  const allWaveforms = [
+    ...BUILTIN_WAVEFORMS.filter(w => !hiddenBuiltinIds.includes(w.id)),
+    ...customWaveforms,
+  ];
 
-  // Save to localStorage whenever customWaveforms changes
-  useEffect(() => {
-    saveCustomWaveforms(customWaveforms);
-  }, [customWaveforms]);
+  useEffect(() => { saveCustomWaveforms(customWaveforms); }, [customWaveforms]);
+  useEffect(() => { localStorage.setItem(HIDDEN_KEY, JSON.stringify(hiddenBuiltinIds)); }, [hiddenBuiltinIds]);
 
   const importFile = useCallback(async (file: File): Promise<string | null> => {
     try {
@@ -32,27 +40,25 @@ export function useWaveforms() {
   }, []);
 
   const addRemoteWaveform = useCallback((waveform: WaveformDefinition) => {
-    setCustomWaveforms(prev => {
-      if (prev.some(w => w.id === waveform.id)) return prev;
-      return [...prev, { ...waveform, custom: true }];
-    });
+    setCustomWaveforms(prev => prev.some(w => w.id === waveform.id) ? prev : [...prev, { ...waveform, custom: true }]);
   }, []);
 
-  // Remove a custom waveform
+  // builtin → 隐藏到 localStorage；custom → 真删
   const removeWaveform = useCallback((id: string) => {
-    setCustomWaveforms(prev => prev.filter(w => w.id !== id));
+    if (BUILTIN_WAVEFORMS.some(w => w.id === id)) {
+      setHiddenBuiltinIds(prev => prev.includes(id) ? prev : [...prev, id]);
+    } else {
+      setCustomWaveforms(prev => prev.filter(w => w.id !== id));
+    }
   }, []);
 
-  // Remove all custom waveforms
-  const clearWaveforms = useCallback(() => {
+  const restoreDefaults = useCallback(() => {
     setCustomWaveforms([]);
+    setHiddenBuiltinIds([]);
   }, []);
 
-  // Get waveform by ID (from any source)
   const getWaveform = useCallback(
-    (id: string): WaveformDefinition | undefined => {
-      return allWaveforms.find(w => w.id === id);
-    },
+    (id: string): WaveformDefinition | undefined => allWaveforms.find(w => w.id === id),
     [allWaveforms]
   );
 
@@ -62,7 +68,7 @@ export function useWaveforms() {
     importFile,
     addRemoteWaveform,
     removeWaveform,
-    clearWaveforms,
+    restoreDefaults,
     getWaveform,
   };
 }

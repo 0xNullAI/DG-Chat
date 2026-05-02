@@ -16,13 +16,15 @@ interface ControlPanelProps {
   waveforms: WaveformDefinition[];
   onImportWaveform: (file: File) => Promise<string | null>;
   onRemoveWaveform: (id: string) => void;
-  onClearWaveforms: () => void;
+  onRestoreDefaults: () => void;
   selfState: MemberState;
   selfLimitA: number;
   selfLimitB: number;
   onSetLimit: (channel: 'A' | 'B', value: number) => void;
   backgroundBehavior: 'stop' | 'keep';
   onSetBackgroundBehavior: (mode: 'stop' | 'keep') => void;
+  firePolicy: 'sum' | 'max' | 'avg';
+  onSetFirePolicy: (p: 'sum' | 'max' | 'avg') => void;
 }
 
 function SelfCard({ member, onClick }: { member: MemberState; onClick: () => void }) {
@@ -56,7 +58,7 @@ function SelfCard({ member, onClick }: { member: MemberState; onClick: () => voi
   );
 }
 
-export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, roomId, waveforms, onImportWaveform, onRemoveWaveform, onClearWaveforms, selfState, selfLimitA, selfLimitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior }: ControlPanelProps) {
+export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, roomId, waveforms, onImportWaveform, onRemoveWaveform, onRestoreDefaults, selfState, selfLimitA, selfLimitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior, firePolicy, onSetFirePolicy }: ControlPanelProps) {
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -89,13 +91,15 @@ export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, ro
         waveforms={targetWaveforms}
         onImportWaveform={onImportWaveform}
         onRemoveWaveform={onRemoveWaveform}
-        onClearWaveforms={onClearWaveforms}
+        onRestoreDefaults={onRestoreDefaults}
         isSelf={isSelf}
         limitA={isSelf ? selfLimitA : 200}
         limitB={isSelf ? selfLimitB : 200}
         onSetLimit={isSelf ? onSetLimit : undefined}
         backgroundBehavior={backgroundBehavior}
         onSetBackgroundBehavior={isSelf ? onSetBackgroundBehavior : undefined}
+        firePolicy={firePolicy}
+        onSetFirePolicy={onSetFirePolicy}
       />
     );
   }

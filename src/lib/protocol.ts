@@ -11,13 +11,11 @@ export interface ChatMessage {
 }
 
 export type CmdAction =
-  | 'adjust_strength'
+  | 'adjust_strength'  // v=signed delta；owner 端 prev+delta 累加并 clamp 到 [0, limit]，多控制者安全
   | 'change_wave'
   | 'start'
   | 'stop'
   | 'stop_wave'
-  | 'fire'
-  | 'fire_stop'
   | 'burst'
   | 'vibrate'
   | 'alert'
@@ -26,7 +24,9 @@ export type CmdAction =
   | 'beep'
   | 'set_queue'
   | 'set_play_mode'
-  | 'set_interval';
+  | 'set_interval'
+  | 'fire_active'     // 心跳：控制者按住期间每 300ms 一次，v=boost；owner 端 800ms 没刷新即视作松开
+  | 'fire_release';   // 快速松开（非必需）：控制者松开瞬间发一次，让 owner 立即回落而不必等心跳过期
 
 export type PlayMode = 'single' | 'list' | 'random';
 
@@ -38,7 +38,7 @@ export interface DeviceCommand {
   action: CmdAction;
   /** channel: 'A' | 'B' */
   c?: 'A' | 'B';
-  /** numeric value: strength / targetStrength / restoreStrength */
+  /** numeric value: adjust_strength=delta; fire_active=boost; fire=absolute（已废弃） */
   v?: number;
   /** waveform id */
   w?: string;
@@ -90,6 +90,9 @@ export interface MemberState {
   intervalB: number;
   currentIndexA: number;
   currentIndexB: number;
+  // —— 开火状态新增 ——
+  firingA: boolean;
+  firingB: boolean;
 }
 
 /** 高频字段：强度 + 当前波形 ID。任一变化触发立即广播。 */
@@ -98,6 +101,9 @@ export interface StateFast {
   strengthB: number;
   waveA: string | null;
   waveB: string | null;
+  // —— 开火状态新增 ——
+  firingA: boolean;
+  firingB: boolean;
 }
 
 /** 低频字段：名字、设备连接、电量、波形目录。5 秒心跳。 */
