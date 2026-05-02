@@ -83,9 +83,14 @@ export default function App() {
   // 注册远程指令处理器
   const handleCommand = useCallback((cmd: DeviceCommand, _peerId: string) => {
     // 队列意图：更新本机权威状态。由 broadcastStateSlow 在 effect 里同步给所有人。
+    // 队列变更后若当前在播波形仍在新队列里，把 index 对齐到它，避免 index 与播放短暂不一致。
     if (cmd.action === 'set_queue' && cmd.c && cmd.q) {
-      if (cmd.c === 'A') { setQueueA(cmd.q); setCurrentIndexA(0); }
-      else               { setQueueB(cmd.q); setCurrentIndexB(0); }
+      const q = cmd.q;
+      const playing = cmd.c === 'A' ? deviceRef.current.waveIdA : deviceRef.current.waveIdB;
+      const aligned = playing ? q.indexOf(playing) : -1;
+      const nextIdx = aligned >= 0 ? aligned : 0;
+      if (cmd.c === 'A') { setQueueA(q); setCurrentIndexA(nextIdx); }
+      else               { setQueueB(q); setCurrentIndexB(nextIdx); }
       return;
     }
     if (cmd.action === 'set_play_mode' && cmd.c && cmd.mode) {
