@@ -43,11 +43,9 @@ export function useWaveforms() {
     setCustomWaveforms(prev => prev.filter(w => w.id !== id));
   }, []);
 
-  // Rename a custom waveform
-  const renameWaveform = useCallback((id: string, newName: string) => {
-    setCustomWaveforms(prev =>
-      prev.map(w => (w.id === id ? { ...w, name: newName } : w))
-    );
+  // Remove all custom waveforms
+  const clearWaveforms = useCallback(() => {
+    setCustomWaveforms([]);
   }, []);
 
   // Get waveform by ID (from any source)
@@ -60,12 +58,11 @@ export function useWaveforms() {
 
   return {
     allWaveforms,
-    builtinWaveforms: BUILTIN_WAVEFORMS,
     customWaveforms,
     importFile,
     addRemoteWaveform,
     removeWaveform,
-    renameWaveform,
+    clearWaveforms,
     getWaveform,
   };
 }
