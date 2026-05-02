@@ -16,7 +16,7 @@ interface ControlPanelProps {
   waveforms: WaveformDefinition[];
   onImportWaveform: (file: File) => Promise<string | null>;
   onRemoveWaveform: (id: string) => void;
-  onClearWaveforms: () => void;
+  onRestoreDefaults: () => void;
   selfState: MemberState;
   selfLimitA: number;
   selfLimitB: number;
@@ -56,7 +56,7 @@ function SelfCard({ member, onClick }: { member: MemberState; onClick: () => voi
   );
 }
 
-export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, roomId, waveforms, onImportWaveform, onRemoveWaveform, onClearWaveforms, selfState, selfLimitA, selfLimitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior }: ControlPanelProps) {
+export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, roomId, waveforms, onImportWaveform, onRemoveWaveform, onRestoreDefaults, selfState, selfLimitA, selfLimitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior }: ControlPanelProps) {
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -89,7 +89,7 @@ export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, ro
         waveforms={targetWaveforms}
         onImportWaveform={onImportWaveform}
         onRemoveWaveform={onRemoveWaveform}
-        onClearWaveforms={onClearWaveforms}
+        onRestoreDefaults={onRestoreDefaults}
         isSelf={isSelf}
         limitA={isSelf ? selfLimitA : 200}
         limitB={isSelf ? selfLimitB : 200}

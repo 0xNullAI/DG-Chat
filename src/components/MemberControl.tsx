@@ -53,7 +53,7 @@ interface MemberControlProps {
   waveforms: WaveformDefinition[];
   onImportWaveform: (file: File) => Promise<string | null>;
   onRemoveWaveform: (id: string) => void;
-  onClearWaveforms: () => void;
+  onRestoreDefaults: () => void;
   isSelf: boolean;
   limitA: number;
   limitB: number;
@@ -132,7 +132,7 @@ function FireCircle({ label, strength, maxStrength, disabled, firing, onStrength
 
 export function MemberControl({
   peerId, member, onSendCommand, onSendWaveform, onBack,
-  waveforms, onImportWaveform, onRemoveWaveform, onClearWaveforms,
+  waveforms, onImportWaveform, onRemoveWaveform, onRestoreDefaults,
   isSelf, limitA, limitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior,
 }: MemberControlProps) {
   const [waveTab, setWaveTab] = useState<'A' | 'B'>('A');
@@ -278,11 +278,11 @@ export function MemberControl({
             {currentPlaylist.indexOf(w.id) + 1}
           </span>
         )}
-        {isSelf && w.custom && !inPlaylist && (
+        {isSelf && !inPlaylist && (
           <button
             onClick={e => { e.stopPropagation(); onRemoveWaveform(w.id); }}
             className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white opacity-0 transition-opacity group-hover:opacity-100"
-            title="删除波形"
+            title={w.custom ? '删除自定义波形' : '隐藏内置波形'}
           >
             <Trash2 size={8} />
           </button>
@@ -501,18 +501,6 @@ export function MemberControl({
               波形{currentPlaylist.length > 0 ? ` (已选 ${currentPlaylist.length})` : ''}
             </p>
             <div className="flex items-center gap-1">
-              {isSelf && waveforms.some(w => w.custom) && (
-                <button
-                  onClick={() => {
-                    if (window.confirm('确定要清空所有自定义波形吗？此操作无法撤销。')) {
-                      onClearWaveforms();
-                    }
-                  }}
-                  className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--danger)] transition-colors hover:bg-[var(--danger-soft)]"
-                >
-                  <Trash2 size={12} /> 清空
-                </button>
-              )}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
@@ -605,7 +593,20 @@ export function MemberControl({
               </button>
             </div>
 
-            {/* policy 与 恢复默认 由后续 task 在此追加 */}
+            <div className="border-t border-[var(--surface-border)] pt-3">
+              <button
+                onClick={() => {
+                  if (window.confirm('恢复默认波形：清空全部自定义波形并取消隐藏所有内置波形。此操作无法撤销。')) {
+                    onRestoreDefaults();
+                  }
+                }}
+                className="flex h-9 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--surface-border)] text-xs font-medium text-[var(--text-soft)] hover:bg-[var(--bg-soft)]"
+              >
+                <RotateCcw size={13} /> 恢复默认波形
+              </button>
+              <p className="mt-1 text-[10px] text-[var(--text-faint)]">清空自定义 + 取消隐藏内置</p>
+            </div>
+            {/* policy 由后续 task 在此追加 */}
           </div>
         ) : (
           <p className="text-xs text-[var(--text-faint)]">仅本人可见此设置</p>

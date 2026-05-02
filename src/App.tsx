@@ -304,7 +304,7 @@ export default function App() {
             waveforms={waveforms.allWaveforms}
             onImportWaveform={waveforms.importFile}
             onRemoveWaveform={waveforms.removeWaveform}
-            onClearWaveforms={waveforms.clearWaveforms}
+            onRestoreDefaults={waveforms.restoreDefaults}
             selfState={{
               peerId: 'self',
               displayName,
