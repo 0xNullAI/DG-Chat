@@ -92,6 +92,12 @@ export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string
       if (!dev) return '未连接蓝牙设备';
       return '脉冲已发送';
 
+    case 'set_queue':
+    case 'set_play_mode':
+    case 'set_interval':
+      // 由 App.tsx 拦截：这些命令更新本机权威队列状态，由 broadcastStateSlow 同步给所有人。
+      return '';
+
     default:
       return `未知指令: ${(cmd as DeviceCommand).action}`;
   }

@@ -8,7 +8,44 @@ import { SafetyNotice, useSafetyAccepted } from './components/SafetyNotice';
 import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { Bluetooth, BluetoothOff, LogOut, Sun, Moon } from 'lucide-react';
-import type { DeviceCommand, MemberState, CmdAction, WaveformTransfer } from './lib/protocol';
+import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
+import type { WaveFrame } from './lib/waveforms';
+
+interface ChannelRotationDevice {
+  connected: boolean;
+  setWave: (channel: 'A' | 'B', frames: WaveFrame[], id: string, loop: boolean) => void;
+}
+
+interface ChannelRotationWaveforms {
+  getWaveform: (id: string) => { id: string; name: string; frames: WaveFrame[] } | undefined;
+}
+
+function useChannelRotation(
+  channel: 'A' | 'B',
+  waveId: string | null,
+  queue: string[],
+  mode: PlayMode,
+  intervalSec: number,
+  setIndex: React.Dispatch<React.SetStateAction<number>>,
+  deviceRef: React.RefObject<ChannelRotationDevice>,
+  waveformsRef: React.RefObject<ChannelRotationWaveforms>,
+) {
+  useEffect(() => {
+    if (waveId == null || queue.length <= 1 || mode === 'single') return;
+    const t = window.setInterval(() => {
+      setIndex(prev => {
+        const next = mode === 'random'
+          ? Math.floor(Math.random() * queue.length)
+          : (prev + 1) % queue.length;
+        const wf = waveformsRef.current.getWaveform(queue[next]!);
+        const dev = deviceRef.current;
+        if (wf && dev.connected) dev.setWave(channel, wf.frames, wf.id, true);
+        return next;
+      });
+    }, intervalSec * 1000);
+    return () => clearInterval(t);
+  }, [channel, waveId, queue, mode, intervalSec, setIndex, deviceRef, waveformsRef]);
+}
 
 export default function App() {
   const [displayName, setDisplayName] = useState(() =>
@@ -18,6 +55,15 @@ export default function App() {
   const [theme, setTheme] = useState(() =>
     document.documentElement.getAttribute('data-theme') ?? 'dark'
   );
+
+  const [queueA, setQueueA] = useState<string[]>([]);
+  const [queueB, setQueueB] = useState<string[]>([]);
+  const [playModeA, setPlayModeA] = useState<PlayMode>('single');
+  const [playModeB, setPlayModeB] = useState<PlayMode>('single');
+  const [intervalASec, setIntervalASec] = useState(30);
+  const [intervalBSec, setIntervalBSec] = useState(30);
+  const [currentIndexA, setCurrentIndexA] = useState(0);
+  const [currentIndexB, setCurrentIndexB] = useState(0);
 
   const safety = useSafetyAccepted();
   const peerRoom = usePeerRoom(displayName);
@@ -36,6 +82,28 @@ export default function App() {
 
   // 注册远程指令处理器
   const handleCommand = useCallback((cmd: DeviceCommand, _peerId: string) => {
+    // 队列意图：更新本机权威状态。由 broadcastStateSlow 在 effect 里同步给所有人。
+    // 队列变更后若当前在播波形仍在新队列里，把 index 对齐到它，避免 index 与播放短暂不一致。
+    if (cmd.action === 'set_queue' && cmd.c && cmd.q) {
+      const q = cmd.q;
+      const playing = cmd.c === 'A' ? deviceRef.current.waveIdA : deviceRef.current.waveIdB;
+      const aligned = playing ? q.indexOf(playing) : -1;
+      const nextIdx = aligned >= 0 ? aligned : 0;
+      if (cmd.c === 'A') { setQueueA(q); setCurrentIndexA(nextIdx); }
+      else               { setQueueB(q); setCurrentIndexB(nextIdx); }
+      return;
+    }
+    if (cmd.action === 'set_play_mode' && cmd.c && cmd.mode) {
+      if (cmd.c === 'A') setPlayModeA(cmd.mode);
+      else               setPlayModeB(cmd.mode);
+      return;
+    }
+    if (cmd.action === 'set_interval' && cmd.c && cmd.iv != null) {
+      if (cmd.c === 'A') setIntervalASec(cmd.iv);
+      else               setIntervalBSec(cmd.iv);
+      return;
+    }
+
     const ctx: CommandContext = {
       device: deviceRef.current.connected ? (deviceRef.current as unknown as CommandContext['device']) : null,
       getWaveform: waveformsRef.current.getWaveform,
@@ -93,6 +161,10 @@ export default function App() {
         waveformCatalog: waveformsRef.current.allWaveforms.map(w => ({
           id: w.id, name: w.name, custom: !!w.custom,
         })),
+        queueA, queueB,
+        playModeA, playModeB,
+        intervalA: intervalASec, intervalB: intervalBSec,
+        currentIndexA, currentIndexB,
       });
     };
     send();
@@ -100,7 +172,13 @@ export default function App() {
     return () => clearInterval(t);
   }, [peerRoom.connected, peerRoom.broadcastStateSlow,
       displayName, device.connected, device.battery,
-      waveforms.allWaveforms.length]);
+      waveforms.allWaveforms.length,
+      queueA, queueB, playModeA, playModeB,
+      intervalASec, intervalBSec, currentIndexA, currentIndexB]);
+
+  // A/B 通道：被控方权威定时切换（自己持有真值）
+  useChannelRotation('A', device.waveIdA, queueA, playModeA, intervalASec, setCurrentIndexA, deviceRef, waveformsRef);
+  useChannelRotation('B', device.waveIdB, queueB, playModeB, intervalBSec, setCurrentIndexB, deviceRef, waveformsRef);
 
   if (!safety.accepted) {
     return <SafetyNotice onAccept={({ dontShowAgain }) => safety.accept(dontShowAgain)} />;
@@ -236,6 +314,10 @@ export default function App() {
               waveA: device.waveIdA,
               waveB: device.waveIdB,
               battery: device.battery,
+              queueA, queueB,
+              playModeA, playModeB,
+              intervalA: intervalASec, intervalB: intervalBSec,
+              currentIndexA, currentIndexB,
             } satisfies MemberState}
             selfLimitA={device.limitA}
             selfLimitB={device.limitB}

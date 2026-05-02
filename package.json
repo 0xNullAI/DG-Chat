@@ -1,7 +1,7 @@
 {
   "name": "dg-chat",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,10 +12,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@dg-kit/core": "^1.0.0",
-    "@dg-kit/protocol": "^1.0.0",
-    "@dg-kit/transport-webbluetooth": "^1.0.0",
-    "@dg-kit/waveforms": "^1.0.0",
+    "@dg-kit/core": "^1.0.1",
+    "@dg-kit/protocol": "^1.0.1",
+    "@dg-kit/transport-webbluetooth": "^1.0.1",
+    "@dg-kit/waveforms": "^1.0.1",
     "fflate": "^0.8.2",
     "lucide-react": "^1.11.0",
     "mqtt": "^5.15.1",
@@ -24,14 +24,14 @@
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.2.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
-    "eslint": "^9.39.4",
+    "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",

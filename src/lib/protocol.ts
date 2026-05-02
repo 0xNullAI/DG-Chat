@@ -23,7 +23,12 @@ export type CmdAction =
   | 'alert'
   | 'bg'
   | 'shake'
-  | 'beep';
+  | 'beep'
+  | 'set_queue'
+  | 'set_play_mode'
+  | 'set_interval';
+
+export type PlayMode = 'single' | 'list' | 'random';
 
 /**
  * 设备命令。`target` 由 topic 携带（cmd/{peerId}），不进 payload。
@@ -39,6 +44,12 @@ export interface DeviceCommand {
   w?: string;
   /** generic data: alert text, bg color */
   d?: string;
+  /** queue: waveform id 数组（set_queue 用） */
+  q?: string[];
+  /** play mode（set_play_mode 用） */
+  mode?: PlayMode;
+  /** interval seconds（set_interval 用） */
+  iv?: number;
 }
 
 export interface WaveformTransfer {
@@ -70,6 +81,15 @@ export interface MemberState {
   waveB: string | null;
   battery: number | null;
   waveformCatalog?: WaveformCatalogEntry[];
+  // —— 队列同步新增 ——
+  queueA: string[];
+  queueB: string[];
+  playModeA: PlayMode;
+  playModeB: PlayMode;
+  intervalA: number;
+  intervalB: number;
+  currentIndexA: number;
+  currentIndexB: number;
 }
 
 /** 高频字段：强度 + 当前波形 ID。任一变化触发立即广播。 */
@@ -86,4 +106,13 @@ export interface StateSlow {
   deviceConnected: boolean;
   battery: number | null;
   waveformCatalog?: WaveformCatalogEntry[];
+  // —— 队列同步新增 ——
+  queueA: string[];
+  queueB: string[];
+  playModeA: PlayMode;
+  playModeB: PlayMode;
+  intervalA: number;
+  intervalB: number;
+  currentIndexA: number;
+  currentIndexB: number;
 }

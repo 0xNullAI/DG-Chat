@@ -207,6 +207,9 @@ export function usePeerRoom(displayName: string) {
               v: data.v as number | undefined,
               w: data.w as string | undefined,
               d: data.d as string | undefined,
+              q: data.q as string[] | undefined,
+              mode: data.mode as DeviceCommand['mode'],
+              iv: data.iv as number | undefined,
             }, from);
           } else if (topic === t.waveSelf) {
             onWaveformRef.current?.({
@@ -239,6 +242,14 @@ export function usePeerRoom(displayName: string) {
                 deviceConnected: (data.dc as boolean) ?? cur.deviceConnected,
                 battery: (data.b as number | null) ?? null,
                 waveformCatalog: (data.cat as MemberState['waveformCatalog']) ?? cur.waveformCatalog,
+                queueA: (data.qA as string[]) ?? cur.queueA,
+                queueB: (data.qB as string[]) ?? cur.queueB,
+                playModeA: (data.mA as MemberState['playModeA']) ?? cur.playModeA,
+                playModeB: (data.mB as MemberState['playModeB']) ?? cur.playModeB,
+                intervalA: (data.iA as number) ?? cur.intervalA,
+                intervalB: (data.iB as number) ?? cur.intervalB,
+                currentIndexA: (data.ciA as number) ?? cur.currentIndexA,
+                currentIndexB: (data.ciB as number) ?? cur.currentIndexB,
               });
               return next;
             });
@@ -337,6 +348,10 @@ export function usePeerRoom(displayName: string) {
       _from: selfId,
       n: s.displayName, dc: s.deviceConnected, b: s.battery,
       ...(s.waveformCatalog ? { cat: s.waveformCatalog } : {}),
+      qA: s.queueA, qB: s.queueB,
+      mA: s.playModeA, mB: s.playModeB,
+      iA: s.intervalA, iB: s.intervalB,
+      ciA: s.currentIndexA, ciB: s.currentIndexB,
     }), 0);
   }, [publishAll]);
 
@@ -416,5 +431,13 @@ function emptyMember(peerId: string): MemberState {
     waveA: null,
     waveB: null,
     battery: null,
+    queueA: [],
+    queueB: [],
+    playModeA: 'single',
+    playModeB: 'single',
+    intervalA: 30,
+    intervalB: 30,
+    currentIndexA: 0,
+    currentIndexB: 0,
   };
 }
