@@ -317,24 +317,6 @@ export function MemberControl({
             )}
           </div>
         )}
-        <button
-          onClick={() => setFirePopOpen(v => !v)}
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-soft)] transition-colors hover:bg-[var(--bg-soft)] ${firePopOpen ? 'bg-[var(--bg-soft)] text-[var(--text)]' : ''}`}
-          title="一键开火"
-          aria-label="一键开火"
-        >
-          <Zap size={16} />
-        </button>
-        {isSelf && (
-          <button
-            onClick={() => setSafetyPopOpen(v => !v)}
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-soft)] transition-colors hover:bg-[var(--bg-soft)] ${safetyPopOpen ? 'bg-[var(--bg-soft)] text-[var(--text)]' : ''}`}
-            title="个人安全设置"
-            aria-label="个人安全设置"
-          >
-            <Settings size={16} />
-          </button>
-        )}
       </div>
 
       <div className="flex-1 px-4 py-4">
@@ -475,24 +457,52 @@ export function MemberControl({
               <Shuffle size={13} /> 随机
             </button>
           </div>
-          {currentPlayMode !== 'single' && (
-            <div className="flex items-center gap-1.5">
-              <Timer size={12} className="text-[var(--text-faint)]" />
-              <select
-                value={currentInterval}
-                onChange={e => onSendCommand(peerId, 'set_interval', { c: waveTab, iv: Number(e.target.value) })}
-                className="rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-1.5 py-0.5 text-[11px] text-[var(--text)] outline-none"
+          <div className="flex items-center gap-1">
+            {currentPlayMode !== 'single' && (
+              <div className="mr-1 flex items-center gap-1.5">
+                <Timer size={12} className="text-[var(--text-faint)]" />
+                <select
+                  value={currentInterval}
+                  onChange={e => onSendCommand(peerId, 'set_interval', { c: waveTab, iv: Number(e.target.value) })}
+                  className="rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-1.5 py-0.5 text-[11px] text-[var(--text)] outline-none"
+                >
+                  <option value={10}>10秒</option>
+                  <option value={20}>20秒</option>
+                  <option value={30}>30秒</option>
+                  <option value={60}>1分钟</option>
+                  <option value={120}>2分钟</option>
+                  <option value={300}>5分钟</option>
+                  <option value={600}>10分钟</option>
+                </select>
+              </div>
+            )}
+            <button
+              onClick={() => setFirePopOpen(v => !v)}
+              className={`flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] transition-colors ${
+                firePopOpen
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'text-[var(--text-faint)] hover:bg-[var(--bg-soft)] hover:text-[var(--text-soft)]'
+              }`}
+              title="一键开火"
+              aria-label="一键开火"
+            >
+              <Zap size={14} />
+            </button>
+            {isSelf && (
+              <button
+                onClick={() => setSafetyPopOpen(v => !v)}
+                className={`flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] transition-colors ${
+                  safetyPopOpen
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                    : 'text-[var(--text-faint)] hover:bg-[var(--bg-soft)] hover:text-[var(--text-soft)]'
+                }`}
+                title="个人安全设置"
+                aria-label="个人安全设置"
               >
-                <option value={10}>10秒</option>
-                <option value={20}>20秒</option>
-                <option value={30}>30秒</option>
-                <option value={60}>1分钟</option>
-                <option value={120}>2分钟</option>
-                <option value={300}>5分钟</option>
-                <option value={600}>10分钟</option>
-              </select>
-            </div>
-          )}
+                <Settings size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* ==================== Waveform Grid ==================== */}
