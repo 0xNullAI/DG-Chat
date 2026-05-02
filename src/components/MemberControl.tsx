@@ -288,6 +288,49 @@ export function MemberControl({
     e.target.value = '';
   }
 
+  const renderCard = (w: WaveformDefinition) => {
+    const inPlaylist = currentPlaylist.includes(w.id);
+    const isActive = activeWaveId === w.id;
+    return (
+      <div
+        key={w.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => toggleWaveform(w)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleWaveform(w); } }}
+        className={`wave-card group ${
+          isActive ? 'selected' :
+          inPlaylist ? 'wave-card-queued' : ''
+        }`}
+      >
+        <svg viewBox="0 0 40 20" className="wave-icon">
+          <path
+            d="M2 10 Q8 2 14 10 Q20 18 26 10 Q32 2 38 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
+        <span className="wave-card-name">{w.name}</span>
+        {inPlaylist && (
+          <span className="absolute top-0.5 right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--accent)] text-[8px] text-white font-bold">
+            {currentPlaylist.indexOf(w.id) + 1}
+          </span>
+        )}
+        {isSelf && w.custom && !inPlaylist && (
+          <button
+            onClick={e => { e.stopPropagation(); onRemoveWaveform(w.id); }}
+            className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white opacity-0 transition-opacity group-hover:opacity-100"
+            title="删除波形"
+          >
+            <Trash2 size={8} />
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {/* Header */}
@@ -508,50 +551,39 @@ export function MemberControl({
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-2">
-            {waveforms.map(w => {
-              const inPlaylist = currentPlaylist.includes(w.id);
-              const isActive = activeWaveId === w.id;
-              return (
-                <div
-                  key={w.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => toggleWaveform(w)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleWaveform(w); } }}
-                  className={`wave-card group ${
-                    isActive ? 'selected' :
-                    inPlaylist ? 'wave-card-queued' : ''
-                  }`}
-                >
-                  <svg viewBox="0 0 40 20" className="wave-icon">
-                    <path
-                      d="M2 10 Q8 2 14 10 Q20 18 26 10 Q32 2 38 10"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <span className="wave-card-name">{w.name}</span>
-                  {inPlaylist && (
-                    <span className="absolute top-0.5 right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--accent)] text-[8px] text-white font-bold">
-                      {currentPlaylist.indexOf(w.id) + 1}
-                    </span>
-                  )}
-                  {isSelf && w.custom && !inPlaylist && (
-                    <button
-                      onClick={e => { e.stopPropagation(); onRemoveWaveform(w.id); }}
-                      className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white opacity-0 transition-opacity group-hover:opacity-100"
-                      title="删除波形"
-                    >
-                      <Trash2 size={8} />
-                    </button>
-                  )}
+          {/* 分组：内置波形常驻 */}
+          {(() => {
+            const builtins = waveforms.filter(w => !w.custom);
+            const customs  = waveforms.filter(w =>  w.custom);
+            const activeName =
+              waveforms.find(w => w.id === activeWaveId)?.name ?? null;
+            const customsHasActive = customs.some(w => w.id === activeWaveId);
+
+            return (
+              <>
+                <div className="grid grid-cols-4 gap-2">
+                  {builtins.map(renderCard)}
                 </div>
-              );
-            })}
-          </div>
+
+                {customs.length > 0 && (
+                  <details className="mt-3 group" open={customsHasActive}>
+                    <summary className="flex cursor-pointer items-center justify-between rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-soft)] hover:bg-[var(--bg-soft)] select-none">
+                      <span>
+                        自定义波形（{customs.length}）
+                        {activeName && customs.some(w => w.id === activeWaveId) && (
+                          <span className="ml-2 text-[var(--accent)]">· 当前：{activeName}</span>
+                        )}
+                      </span>
+                      <span className="text-[var(--text-faint)] transition-transform group-open:rotate-90">›</span>
+                    </summary>
+                    <div className="mt-2 grid grid-cols-4 gap-2">
+                      {customs.map(renderCard)}
+                    </div>
+                  </details>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {/* ==================== Fire Buttons ==================== */}
