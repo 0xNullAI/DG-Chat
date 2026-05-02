@@ -153,10 +153,10 @@ export default function App() {
       else               setIntervalBSec(cmd.iv);
       return;
     }
-    if (cmd.action === 'fire_press' && cmd.c && cmd.v != null) {
+    if (cmd.action === 'fire_active' && cmd.c && cmd.v != null) {
       const map = cmd.c === 'A' ? fireBoostsA.current : fireBoostsB.current;
       if (map.size === 0) {
-        // 第一个按下：抓 baseline 快照
+        // 从空到非空的边沿：抓 baseline 快照
         const dev = deviceRef.current;
         if (cmd.c === 'A') baselineARef.current = dev.strengthA;
         else               baselineBRef.current = dev.strengthB;
@@ -251,39 +251,23 @@ export default function App() {
   useChannelRotation('A', device.waveIdA, queueA, playModeA, intervalASec, setCurrentIndexA, deviceRef, waveformsRef);
   useChannelRotation('B', device.waveIdB, queueB, playModeB, intervalBSec, setCurrentIndexB, deviceRef, waveformsRef);
 
-  // 看门狗：清除 8 秒未更新的 fire_press 记录（兜底；正常路径靠 fire_release QoS 1 + presence 删 peer）
+  // 心跳过期 reaper：fire_active 每 300ms 一次，超过 800ms 没刷新即视作松开。
+  // 正常松开走 fire_release QoS 1 立即回落；任何异常路径（页面关闭/丢包/崩溃）由这里兜底，最坏 ~1s 内归零。
   useEffect(() => {
     const t = window.setInterval(() => {
       const now = Date.now();
       let dirtyA = false, dirtyB = false;
       fireBoostsA.current.forEach((v, k) => {
-        if (now - v.ts > 8_000) { fireBoostsA.current.delete(k); dirtyA = true; }
+        if (now - v.ts > 800) { fireBoostsA.current.delete(k); dirtyA = true; }
       });
       fireBoostsB.current.forEach((v, k) => {
-        if (now - v.ts > 8_000) { fireBoostsB.current.delete(k); dirtyB = true; }
+        if (now - v.ts > 800) { fireBoostsB.current.delete(k); dirtyB = true; }
       });
       if (dirtyA) callApplyFire('A');
       if (dirtyB) callApplyFire('B');
-    }, 2000);
+    }, 200);
     return () => clearInterval(t);
   }, [callApplyFire]);
-
-  // Peer 离场即时清理：被 presence_timeout 踢掉的 peer 立刻撤掉它在两通道的 fire 贡献，不等 watchdog
-  const knownPeersRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const current = new Set(peerRoom.peers);
-    const removed: string[] = [];
-    knownPeersRef.current.forEach(p => { if (!current.has(p)) removed.push(p); });
-    knownPeersRef.current = current;
-    if (removed.length === 0) return;
-    let dirtyA = false, dirtyB = false;
-    for (const p of removed) {
-      if (fireBoostsA.current.delete(p)) dirtyA = true;
-      if (fireBoostsB.current.delete(p)) dirtyB = true;
-    }
-    if (dirtyA) callApplyFire('A');
-    if (dirtyB) callApplyFire('B');
-  }, [peerRoom.peers, callApplyFire]);
 
   if (!safety.accepted) {
     return <SafetyNotice onAccept={({ dontShowAgain }) => safety.accept(dontShowAgain)} />;

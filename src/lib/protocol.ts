@@ -27,8 +27,8 @@ export type CmdAction =
   | 'set_queue'
   | 'set_play_mode'
   | 'set_interval'
-  | 'fire_press'      // 控制者按下：v=boost
-  | 'fire_release';   // 控制者松开：清空本人贡献
+  | 'fire_active'     // 心跳：控制者按住期间每 300ms 一次，v=boost；owner 端 800ms 没刷新即视作松开
+  | 'fire_release';   // 快速松开（非必需）：控制者松开瞬间发一次，让 owner 立即回落而不必等心跳过期
 
 export type PlayMode = 'single' | 'list' | 'random';
 

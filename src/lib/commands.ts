@@ -98,7 +98,7 @@ export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string
       // 由 App.tsx 拦截：这些命令更新本机权威队列状态，由 broadcastStateSlow 同步给所有人。
       return '';
 
-    case 'fire_press':
+    case 'fire_active':
     case 'fire_release':
       // 由 App.tsx 拦截：进聚合系统，由 owner 端权威 setStrength。
       return '';

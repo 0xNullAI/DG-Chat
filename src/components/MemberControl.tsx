@@ -143,9 +143,6 @@ export function MemberControl({
   const [safetyPopOpen, setSafetyPopOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const [popAnchorTop, setPopAnchorTop] = useState(0);
-  // 防御性兜底：popover 关闭时如果按钮还按着（pointerup 没触发），主动发 release
-  const pressedARef = useRef(false);
-  const pressedBRef = useRef(false);
 
   useEffect(() => {
     const measure = () => {
@@ -157,11 +154,30 @@ export function MemberControl({
     return () => window.removeEventListener('resize', measure);
   }, []);
 
-  useEffect(() => {
-    if (firePopOpen) return;
-    if (pressedARef.current) { onSendCommand(peerId, 'fire_release', { c: 'A' }); pressedARef.current = false; }
-    if (pressedBRef.current) { onSendCommand(peerId, 'fire_release', { c: 'B' }); pressedBRef.current = false; }
-  }, [firePopOpen, peerId, onSendCommand]);
+  // 开火心跳：按住期间每 300ms 发一次 fire_active；松开/卸载时清 interval 并发一次 fire_release 加速回落。
+  // 任何异常（页面关闭、popover 突然 unmount、丢包）：心跳停 → owner 端 reaper 800ms 内自动归零。
+  const heartbeatARef = useRef<number | null>(null);
+  const heartbeatBRef = useRef<number | null>(null);
+  const startFireHeartbeat = useCallback((channel: 'A' | 'B', boost: number) => {
+    const ref = channel === 'A' ? heartbeatARef : heartbeatBRef;
+    if (ref.current != null) return;
+    onSendCommand(peerId, 'fire_active', { c: channel, v: boost });
+    ref.current = window.setInterval(() => {
+      onSendCommand(peerId, 'fire_active', { c: channel, v: boost });
+    }, 300);
+  }, [peerId, onSendCommand]);
+  const stopFireHeartbeat = useCallback((channel: 'A' | 'B') => {
+    const ref = channel === 'A' ? heartbeatARef : heartbeatBRef;
+    if (ref.current == null) return;
+    clearInterval(ref.current);
+    ref.current = null;
+    onSendCommand(peerId, 'fire_release', { c: channel });
+  }, [peerId, onSendCommand]);
+  // 组件卸载时停掉所有心跳并发 release（popover 关闭、用户切换 member、整个 panel unmount 都走这里）
+  useEffect(() => () => {
+    if (heartbeatARef.current != null) { clearInterval(heartbeatARef.current); onSendCommand(peerId, 'fire_release', { c: 'A' }); }
+    if (heartbeatBRef.current != null) { clearInterval(heartbeatBRef.current); onSendCommand(peerId, 'fire_release', { c: 'B' }); }
+  }, [peerId, onSendCommand]);
   const playlistA       = member?.queueA ?? [];
   const playlistB       = member?.queueB ?? [];
   const playModeA       = member?.playModeA ?? 'single';
@@ -563,14 +579,14 @@ export function MemberControl({
           <FireCircle
             label="A" strength={fireStrA} maxStrength={limitA} disabled={false} firing={firingA}
             onStrengthChange={setFireStrA}
-            onFireStart={() => { pressedARef.current = true; onSendCommand(peerId, 'fire_press', { c: 'A', v: fireStrA }); }}
-            onFireStop={() => { pressedARef.current = false; onSendCommand(peerId, 'fire_release', { c: 'A' }); }}
+            onFireStart={() => startFireHeartbeat('A', fireStrA)}
+            onFireStop={() => stopFireHeartbeat('A')}
           />
           <FireCircle
             label="B" strength={fireStrB} maxStrength={limitB} disabled={false} firing={firingB}
             onStrengthChange={setFireStrB}
-            onFireStart={() => { pressedBRef.current = true; onSendCommand(peerId, 'fire_press', { c: 'B', v: fireStrB }); }}
-            onFireStop={() => { pressedBRef.current = false; onSendCommand(peerId, 'fire_release', { c: 'B' }); }}
+            onFireStart={() => startFireHeartbeat('B', fireStrB)}
+            onFireStop={() => stopFireHeartbeat('B')}
           />
         </div>
       </Popover>
