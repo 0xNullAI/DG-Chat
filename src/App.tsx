@@ -9,6 +9,43 @@ import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { Bluetooth, BluetoothOff, LogOut, Sun, Moon } from 'lucide-react';
 import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
+import type { WaveFrame } from './lib/waveforms';
+
+interface ChannelRotationDevice {
+  connected: boolean;
+  setWave: (channel: 'A' | 'B', frames: WaveFrame[], id: string, loop: boolean) => void;
+}
+
+interface ChannelRotationWaveforms {
+  getWaveform: (id: string) => { id: string; name: string; frames: WaveFrame[] } | undefined;
+}
+
+function useChannelRotation(
+  channel: 'A' | 'B',
+  waveId: string | null,
+  queue: string[],
+  mode: PlayMode,
+  intervalSec: number,
+  setIndex: React.Dispatch<React.SetStateAction<number>>,
+  deviceRef: React.RefObject<ChannelRotationDevice>,
+  waveformsRef: React.RefObject<ChannelRotationWaveforms>,
+) {
+  useEffect(() => {
+    if (waveId == null || queue.length <= 1 || mode === 'single') return;
+    const t = window.setInterval(() => {
+      setIndex(prev => {
+        const next = mode === 'random'
+          ? Math.floor(Math.random() * queue.length)
+          : (prev + 1) % queue.length;
+        const wf = waveformsRef.current.getWaveform(queue[next]!);
+        const dev = deviceRef.current;
+        if (wf && dev.connected) dev.setWave(channel, wf.frames, wf.id, true);
+        return next;
+      });
+    }, intervalSec * 1000);
+    return () => clearInterval(t);
+  }, [channel, waveId, queue, mode, intervalSec, setIndex, deviceRef, waveformsRef]);
+}
 
 export default function App() {
   const [displayName, setDisplayName] = useState(() =>
@@ -134,47 +171,9 @@ export default function App() {
       queueA, queueB, playModeA, playModeB,
       intervalASec, intervalBSec, currentIndexA, currentIndexB]);
 
-  // A 通道：被控方权威定时切换（自己持有真值）
-  useEffect(() => {
-    if (device.waveIdA == null || queueA.length <= 1 || playModeA === 'single') return;
-    const t = window.setInterval(() => {
-      setCurrentIndexA(prev => {
-        const next = playModeA === 'random'
-          ? Math.floor(Math.random() * queueA.length)
-          : (prev + 1) % queueA.length;
-        const id = queueA[next]!;
-        const wf = waveformsRef.current.getWaveform(id);
-        const dev = deviceRef.current;
-        if (wf && dev.connected) {
-          (dev as unknown as { setWave: (c: 'A' | 'B', frames: [number, number][], id: string, loop: boolean) => void })
-            .setWave('A', wf.frames, wf.id, true);
-        }
-        return next;
-      });
-    }, intervalASec * 1000);
-    return () => clearInterval(t);
-  }, [device.waveIdA, queueA, playModeA, intervalASec]);
-
-  // B 通道镜像
-  useEffect(() => {
-    if (device.waveIdB == null || queueB.length <= 1 || playModeB === 'single') return;
-    const t = window.setInterval(() => {
-      setCurrentIndexB(prev => {
-        const next = playModeB === 'random'
-          ? Math.floor(Math.random() * queueB.length)
-          : (prev + 1) % queueB.length;
-        const id = queueB[next]!;
-        const wf = waveformsRef.current.getWaveform(id);
-        const dev = deviceRef.current;
-        if (wf && dev.connected) {
-          (dev as unknown as { setWave: (c: 'A' | 'B', frames: [number, number][], id: string, loop: boolean) => void })
-            .setWave('B', wf.frames, wf.id, true);
-        }
-        return next;
-      });
-    }, intervalBSec * 1000);
-    return () => clearInterval(t);
-  }, [device.waveIdB, queueB, playModeB, intervalBSec]);
+  // A/B 通道：被控方权威定时切换（自己持有真值）
+  useChannelRotation('A', device.waveIdA, queueA, playModeA, intervalASec, setCurrentIndexA, deviceRef, waveformsRef);
+  useChannelRotation('B', device.waveIdB, queueB, playModeB, intervalBSec, setCurrentIndexB, deviceRef, waveformsRef);
 
   if (!safety.accepted) {
     return <SafetyNotice onAccept={({ dontShowAgain }) => safety.accept(dontShowAgain)} />;
