@@ -134,17 +134,15 @@ export function MemberControl({
   waveforms, onImportWaveform, onRemoveWaveform, onClearWaveforms,
   isSelf, limitA, limitB, onSetLimit, backgroundBehavior, onSetBackgroundBehavior,
 }: MemberControlProps) {
-  type PlayMode = 'single' | 'list' | 'random';
-
   const [waveTab, setWaveTab] = useState<'A' | 'B'>('A');
-  const [playlistA, setPlaylistA] = useState<string[]>(() => member?.waveA ? [member.waveA] : []);
-  const [playlistB, setPlaylistB] = useState<string[]>(() => member?.waveB ? [member.waveB] : []);
-  const [playModeA, setPlayModeA] = useState<PlayMode>('single');
-  const [playModeB, setPlayModeB] = useState<PlayMode>('single');
-  const [intervalA, setIntervalA] = useState(30);
-  const [intervalB, setIntervalB] = useState(30);
-  const [currentIndexA, setCurrentIndexA] = useState(0);
-  const [currentIndexB, setCurrentIndexB] = useState(0);
+  const playlistA       = member?.queueA ?? [];
+  const playlistB       = member?.queueB ?? [];
+  const playModeA       = member?.playModeA ?? 'single';
+  const playModeB       = member?.playModeB ?? 'single';
+  const intervalA       = member?.intervalA ?? 30;
+  const intervalB       = member?.intervalB ?? 30;
+  const currentIndexA   = member?.currentIndexA ?? 0;
+  const currentIndexB   = member?.currentIndexB ?? 0;
   const [fireStrA, setFireStrA] = useState(0);
   const [fireStrB, setFireStrB] = useState(0);
   const [firingA, setFiringA] = useState(false);
@@ -152,8 +150,6 @@ export function MemberControl({
   const preFireStrA = useRef(0);
   const preFireStrB = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const switchTimerA = useRef<number | null>(null);
-  const switchTimerB = useRef<number | null>(null);
 
   const name = member?.displayName || peerId.slice(0, 8);
   const strengthA = member?.strengthA ?? 0;
@@ -164,9 +160,7 @@ export function MemberControl({
 
   const currentPlaylist = waveTab === 'A' ? playlistA : playlistB;
   const currentPlayMode = waveTab === 'A' ? playModeA : playModeB;
-  const setCurrentPlayMode = waveTab === 'A' ? setPlayModeA : setPlayModeB;
   const currentInterval = waveTab === 'A' ? intervalA : intervalB;
-  const setCurrentInterval = waveTab === 'A' ? setIntervalA : setIntervalB;
   const activeWaveId = waveTab === 'A' ? member?.waveA : member?.waveB;
 
   // 乐观本地强度：避免 broadcastState 2 秒延迟导致 strength+1 一直基于旧值
@@ -197,69 +191,20 @@ export function MemberControl({
   }, [peerId, onSendCommand, limitA, limitB]);
 
   function toggleWaveform(w: WaveformDefinition) {
-    const setter = waveTab === 'A' ? setPlaylistA : setPlaylistB;
-    const setIdx = waveTab === 'A' ? setCurrentIndexA : setCurrentIndexB;
     const playlist = waveTab === 'A' ? playlistA : playlistB;
     const isPlaying = waveTab === 'A' ? playingA : playingB;
 
-    if (playlist.includes(w.id)) {
-      const removedIdx = playlist.indexOf(w.id);
-      setter(prev => prev.filter(id => id !== w.id));
-      if (removedIdx <= (waveTab === 'A' ? currentIndexA : currentIndexB)) {
-        setIdx(prev => Math.max(0, prev - 1));
-      }
-    } else {
-      setter(prev => {
-        const newList = [...prev, w.id];
-        setIdx(newList.length - 1);
-        return newList;
-      });
-      if (isPlaying) {
-        onSendCommand(peerId, 'change_wave', { c: waveTab, w: w.id });
-      }
+    const nextQueue = playlist.includes(w.id)
+      ? playlist.filter(id => id !== w.id)
+      : [...playlist, w.id];
+
+    onSendCommand(peerId, 'set_queue', { c: waveTab, q: nextQueue });
+
+    // 如果当前正在播且新加了波形，立刻切过去（保持原 UX）
+    if (!playlist.includes(w.id) && isPlaying) {
+      onSendCommand(peerId, 'change_wave', { c: waveTab, w: w.id });
     }
   }
-
-  function getNextWaveId(playlist: string[], currentIdx: number, mode: PlayMode): { id: string; idx: number } {
-    if (playlist.length === 0) return { id: '', idx: 0 };
-    if (mode === 'single') return { id: playlist[currentIdx % playlist.length]!, idx: currentIdx };
-    if (mode === 'random') {
-      const idx = Math.floor(Math.random() * playlist.length);
-      return { id: playlist[idx]!, idx };
-    }
-    const nextIdx = (currentIdx + 1) % playlist.length;
-    return { id: playlist[nextIdx]!, idx: nextIdx };
-  }
-
-  const switchWave = useCallback((channel: 'A' | 'B') => {
-    const playlist = channel === 'A' ? playlistA : playlistB;
-    const mode = channel === 'A' ? playModeA : playModeB;
-    const currentIdx = channel === 'A' ? currentIndexA : currentIndexB;
-    const setIdx = channel === 'A' ? setCurrentIndexA : setCurrentIndexB;
-
-    if (playlist.length <= 1 && mode === 'single') return;
-
-    const { id, idx } = getNextWaveId(playlist, currentIdx, mode);
-    if (!id) return;
-    setIdx(idx);
-    onSendCommand(peerId, 'change_wave', { c: channel, w: id });
-  }, [playlistA, playlistB, playModeA, playModeB, currentIndexA, currentIndexB, peerId, onSendCommand]);
-
-  useEffect(() => {
-    if (switchTimerA.current) { clearInterval(switchTimerA.current); switchTimerA.current = null; }
-    if (playingA && playlistA.length > 1 && playModeA !== 'single') {
-      switchTimerA.current = window.setInterval(() => switchWave('A'), intervalA * 1000);
-    }
-    return () => { if (switchTimerA.current) clearInterval(switchTimerA.current); };
-  }, [playingA, playlistA.length, playModeA, intervalA, switchWave]);
-
-  useEffect(() => {
-    if (switchTimerB.current) { clearInterval(switchTimerB.current); switchTimerB.current = null; }
-    if (playingB && playlistB.length > 1 && playModeB !== 'single') {
-      switchTimerB.current = window.setInterval(() => switchWave('B'), intervalB * 1000);
-    }
-    return () => { if (switchTimerB.current) clearInterval(switchTimerB.current); };
-  }, [playingB, playlistB.length, playModeB, intervalB, switchWave]);
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -463,7 +408,7 @@ export function MemberControl({
         <div className="mt-3 flex items-center justify-between">
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setCurrentPlayMode('single')}
+              onClick={() => onSendCommand(peerId, 'set_play_mode', { c: waveTab, mode: 'single' })}
               className={`flex h-7 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-[11px] transition-colors ${
                 currentPlayMode === 'single'
                   ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
@@ -474,7 +419,7 @@ export function MemberControl({
               <Repeat1 size={13} /> 单曲
             </button>
             <button
-              onClick={() => setCurrentPlayMode('list')}
+              onClick={() => onSendCommand(peerId, 'set_play_mode', { c: waveTab, mode: 'list' })}
               className={`flex h-7 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-[11px] transition-colors ${
                 currentPlayMode === 'list'
                   ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
@@ -485,7 +430,7 @@ export function MemberControl({
               <Repeat size={13} /> 列表
             </button>
             <button
-              onClick={() => setCurrentPlayMode('random')}
+              onClick={() => onSendCommand(peerId, 'set_play_mode', { c: waveTab, mode: 'random' })}
               className={`flex h-7 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-[11px] transition-colors ${
                 currentPlayMode === 'random'
                   ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
@@ -501,7 +446,7 @@ export function MemberControl({
               <Timer size={12} className="text-[var(--text-faint)]" />
               <select
                 value={currentInterval}
-                onChange={e => setCurrentInterval(Number(e.target.value))}
+                onChange={e => onSendCommand(peerId, 'set_interval', { c: waveTab, iv: Number(e.target.value) })}
                 className="rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-1.5 py-0.5 text-[11px] text-[var(--text)] outline-none"
               >
                 <option value={10}>10秒</option>
