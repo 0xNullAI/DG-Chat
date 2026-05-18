@@ -5,3 +5,5 @@
 # time and only the AndroidManifest.template.xml + build.gradle.kts overrides
 # are tracked. See README.md.
 /gen/
+/target/
+Cargo.lock
