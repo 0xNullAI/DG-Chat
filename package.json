@@ -3,13 +3,21 @@
   "private": true,
   "version": "0.3.1",
   "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "android:dev": "npm run dev -w @dg-chat/tauri-android",
+    "android:build": "npm run build -w @dg-chat/tauri-android",
+    "tauri:android:init": "npm run tauri:android:init -w @dg-chat/tauri-android",
+    "tauri:android:dev": "npm run tauri:android:dev -w @dg-chat/tauri-android",
+    "tauri:android:build": "npm run tauri:android:build -w @dg-chat/tauri-android"
   },
   "dependencies": {
     "@dg-kit/core": "^1.0.1",
