@@ -1,11 +1,21 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { DGLabDevice, type WaveFrame, type DeviceInfo } from '../lib/bluetooth';
+import {
+  DGLabDevice,
+  type DeviceClientFactory,
+  type WaveFrame,
+  type DeviceInfo,
+} from '../lib/bluetooth';
+
+export interface UseDeviceOptions {
+  /** Override the underlying DeviceClient transport. Used by the Tauri shell. */
+  clientFactory?: DeviceClientFactory;
+}
 
 /**
  * DG-Lab 设备控制 Hook
  * 封装 DGLabDevice 类，提供 React 状态同步
  */
-export function useDevice() {
+export function useDevice(options: UseDeviceOptions = {}) {
   const [connected, setConnected] = useState(false);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [strengthA, setStrengthA] = useState(0);
@@ -46,9 +56,16 @@ export function useDevice() {
     setLimitB(s.limitB);
   }, []);
 
+  // The factory is intended to be stable across the hook's lifetime:
+  // either omitted (web) or set once by the Tauri shell. Capturing once at
+  // first render keeps useCallback's identity stable and avoids the
+  // `Cannot update ref during render` lint that fires when a ref is
+  // assigned in the render body.
+  const clientFactoryRef = useRef(options.clientFactory);
+
   /** 扫描并连接设备 */
   const connect = useCallback(async () => {
-    const dev = new DGLabDevice();
+    const dev = new DGLabDevice(clientFactoryRef.current);
     dev.setOnStateChange(syncState);
     const info = await dev.connect();
     deviceRef.current = dev;

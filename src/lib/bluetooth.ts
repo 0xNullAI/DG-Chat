@@ -9,9 +9,17 @@
 import {
   CoyoteProtocolAdapter,
   V2_DEVICE_NAME_PREFIX,
+  type WebBluetoothProtocolAdapter,
 } from '@dg-kit/protocol';
 import { WebBluetoothDeviceClient } from '@dg-kit/transport-webbluetooth';
-import type { DeviceState as KitDeviceState, WaveFrame as KitWaveFrame } from '@dg-kit/core';
+import type { DeviceClient, DeviceState as KitDeviceState, WaveFrame as KitWaveFrame } from '@dg-kit/core';
+
+/**
+ * Optional override hook for non-browser runtimes (Tauri Android shell).
+ * The default behaviour creates a `WebBluetoothDeviceClient`. The Tauri
+ * shell passes a factory that creates a `TauriBlecDeviceClient` instead.
+ */
+export type DeviceClientFactory = (protocol: WebBluetoothProtocolAdapter) => DeviceClient;
 
 export type DeviceVersion = 'v2' | 'v3';
 
@@ -34,7 +42,7 @@ interface ChannelLocalState {
 
 export class DGLabDevice {
   private readonly protocol = new CoyoteProtocolAdapter();
-  private readonly client: WebBluetoothDeviceClient;
+  private readonly client: DeviceClient;
   private onStateChange: (() => void) | null = null;
 
   private version: DeviceVersion = 'v3';
@@ -42,8 +50,16 @@ export class DGLabDevice {
   private channelA: ChannelLocalState = { waveformId: null, frames: null, loop: true };
   private channelB: ChannelLocalState = { waveformId: null, frames: null, loop: true };
 
-  constructor() {
-    this.client = new WebBluetoothDeviceClient({ protocol: this.protocol });
+  /**
+   * @param clientFactory optional factory invoked with the protocol adapter
+   *   to create the transport-specific `DeviceClient`. Defaults to
+   *   `WebBluetoothDeviceClient` for browser. The Tauri Android shell
+   *   passes a factory that builds a `TauriBlecDeviceClient`.
+   */
+  constructor(clientFactory?: DeviceClientFactory) {
+    this.client = clientFactory
+      ? clientFactory(this.protocol)
+      : new WebBluetoothDeviceClient({ protocol: this.protocol });
     this.protocol.subscribe(() => {
       this.onStateChange?.();
     });

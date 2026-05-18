@@ -9,8 +9,18 @@ import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { DeviceSafetyButton } from './components/DeviceSafetyButton';
 import { LogOut, Sun, Moon } from 'lucide-react';
+import type { DeviceClientFactory } from './lib/bluetooth';
 import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
 import type { WaveFrame } from './lib/waveforms';
+
+export interface AppProps {
+  /**
+   * Override the underlying BLE transport. Defaults to Web Bluetooth.
+   * The Tauri Android shell passes a factory that creates a
+   * `TauriBlecDeviceClient` so the same React UI runs natively.
+   */
+  deviceClientFactory?: DeviceClientFactory;
+}
 
 interface ChannelRotationDevice {
   connected: boolean;
@@ -80,7 +90,7 @@ function applyFire(d: FireApplyDeps) {
   d.setFiring(true);
 }
 
-export default function App() {
+export default function App({ deviceClientFactory }: AppProps = {}) {
   const [displayName, setDisplayName] = useState(() =>
     localStorage.getItem('dg-chat-name') ?? ''
   );
@@ -107,7 +117,7 @@ export default function App() {
 
   const safety = useSafetyAccepted();
   const peerRoom = usePeerRoom(displayName);
-  const device = useDevice();
+  const device = useDevice({ clientFactory: deviceClientFactory });
   const waveforms = useWaveforms();
 
   // 保持引用最新，避免闭包过时
