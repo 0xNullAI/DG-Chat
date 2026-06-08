@@ -71,11 +71,16 @@ export class RoomDO extends DurableObject<Env> {
             reserved ? RESERVED_ROOM_NAME : (msg.roomName as string) || att.name || '',
           );
         }
-        // 房主 = 第一个加入者。
-        let host = await this.ctx.storage.get<string>('hostPeerId');
-        if (!host) {
-          host = att.peerId;
-          await this.ctx.storage.put('hostPeerId', host);
+        // 房主 = 第一个加入者。常驻讨论房无房主（纯开放聊天），不指派并清除任何残留。
+        let host = '';
+        if (reserved) {
+          await this.ctx.storage.delete('hostPeerId');
+        } else {
+          host = (await this.ctx.storage.get<string>('hostPeerId')) ?? '';
+          if (!host) {
+            host = att.peerId;
+            await this.ctx.storage.put('hostPeerId', host);
+          }
         }
         // 回放历史给该连接（含此前全部消息与媒体引用）。
         ws.send(JSON.stringify({ t: 'history', messages: this.loadHistory() }));

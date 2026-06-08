@@ -19,7 +19,6 @@ function toScene(item: MarketItem): Scene {
       name: r.name,
       description: r.description,
       aiPlayable: r.aiPlayable,
-      aiPersona: r.aiPersona,
     })),
     playerCount: c.playerCount,
   };

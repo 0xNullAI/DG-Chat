@@ -389,31 +389,36 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          {/* 房间场景 */}
-          <button
-            onClick={() => setSceneOpen(true)}
-            className={`flex h-9 w-9 items-center justify-center rounded-[10px] transition-colors hover:bg-[var(--bg-soft)] ${peerRoom.scene ? 'text-[var(--accent)]' : 'text-[var(--text-soft)]'}`}
-            title="房间场景"
-          >
-            <Drama className="h-4 w-4" />
-          </button>
-          {/* AI 设置（房主配置模型）+ 允许 AI 控制本机设备开关 */}
-          <button
-            onClick={() => setAiSettingsOpen(true)}
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] text-[var(--text-soft)] transition-colors hover:bg-[var(--bg-soft)]"
-            title="AI 设置"
-          >
-            <Bot className="h-4 w-4" />
-          </button>
-          {device.connected && (
-            <button
-              onClick={() => setAllowAi(v => !v)}
-              className={`flex h-9 items-center gap-1 rounded-[10px] px-2 text-[11px] transition-colors hover:bg-[var(--bg-soft)] ${allowAi ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'}`}
-              title={allowAi ? 'AI 可控制你的设备，点击关闭' : '允许房间内 AI 控制你的设备'}
-            >
-              <Bot className="h-3.5 w-3.5" />
-              {allowAi ? '允许AI' : '禁AI'}
-            </button>
+          {/* 常驻讨论房无房主、无 AI（纯开放聊天），隐藏场景/AI 入口 */}
+          {peerRoom.roomId !== '0xNullAI' && (
+            <>
+              {/* 房间场景 */}
+              <button
+                onClick={() => setSceneOpen(true)}
+                className={`flex h-9 w-9 items-center justify-center rounded-[10px] transition-colors hover:bg-[var(--bg-soft)] ${peerRoom.scene ? 'text-[var(--accent)]' : 'text-[var(--text-soft)]'}`}
+                title="房间场景"
+              >
+                <Drama className="h-4 w-4" />
+              </button>
+              {/* AI 设置（房主配置模型）+ 允许 AI 控制本机设备开关 */}
+              <button
+                onClick={() => setAiSettingsOpen(true)}
+                className="flex h-9 w-9 items-center justify-center rounded-[10px] text-[var(--text-soft)] transition-colors hover:bg-[var(--bg-soft)]"
+                title="AI 设置"
+              >
+                <Bot className="h-4 w-4" />
+              </button>
+              {device.connected && (
+                <button
+                  onClick={() => setAllowAi(v => !v)}
+                  className={`flex h-9 items-center gap-1 rounded-[10px] px-2 text-[11px] transition-colors hover:bg-[var(--bg-soft)] ${allowAi ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'}`}
+                  title={allowAi ? 'AI 可控制你的设备，点击关闭' : '允许房间内 AI 控制你的设备'}
+                >
+                  <Bot className="h-3.5 w-3.5" />
+                  {allowAi ? '允许AI' : '禁AI'}
+                </button>
+              )}
+            </>
           )}
           {/* 主题切换 */}
           <button
