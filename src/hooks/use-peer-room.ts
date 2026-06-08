@@ -292,6 +292,7 @@ export function usePeerRoom(displayName: string) {
               intervalB: (data.iB as number) ?? cur.intervalB,
               currentIndexA: (data.ciA as number) ?? cur.currentIndexA,
               currentIndexB: (data.ciB as number) ?? cur.currentIndexB,
+              allowAi: (data.aa as boolean | undefined) ?? cur.allowAi,
             });
             return next;
           });
@@ -449,6 +450,7 @@ export function usePeerRoom(displayName: string) {
       mA: s.playModeA, mB: s.playModeB,
       iA: s.intervalA, iB: s.intervalB,
       ciA: s.currentIndexA, ciB: s.currentIndexB,
+      aa: s.allowAi,
     });
   }, [send]);
 

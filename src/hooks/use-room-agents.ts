@@ -126,9 +126,11 @@ export function useRoomAgents(opts: RoomAgentsOptions): { thinking: Set<string> 
   const [thinking, setThinking] = useState<Set<string>>(new Set());
   const initRef = useRef(false);
 
-  // 最新值用 ref，避免把整个 turn 逻辑塞进 effect 依赖。
+  // 最新值用 ref，避免把整个 turn 逻辑塞进 effect 依赖（在 effect 内更新，不在渲染期写 ref）。
   const latest = useRef(opts);
-  latest.current = opts;
+  useEffect(() => {
+    latest.current = opts;
+  });
 
   const runTurn = useCallback(async (roleId: string, triggerId: string) => {
     if (busyRef.current.has(roleId)) return;

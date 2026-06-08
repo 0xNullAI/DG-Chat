@@ -101,7 +101,7 @@ export async function callLlm(
     });
   } catch (err) {
     if ((err as Error)?.name === 'AbortError') throw err;
-    throw new Error(`LLM 请求失败：${(err as Error)?.message ?? '网络错误'}`);
+    throw new Error(`LLM 请求失败：${(err as Error)?.message ?? '网络错误'}`, { cause: err });
   }
 
   if (!res.ok) {

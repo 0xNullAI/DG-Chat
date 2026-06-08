@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { X, Bot } from 'lucide-react';
 import type { AiConfig } from '../lib/ai-config';
 import {
@@ -14,12 +14,8 @@ interface AiSettingsDialogProps {
 }
 
 export function AiSettingsDialog({ open, onClose }: AiSettingsDialogProps) {
+  // 初始化即载入已保存配置；保存时同步更新本地 state（本组件是唯一写入方）。
   const [config, setConfig] = useState<AiConfig>(loadAiConfig);
-
-  // 每次打开时载入最新的已保存配置。
-  useEffect(() => {
-    if (open) setConfig(loadAiConfig());
-  }, [open]);
 
   if (!open) return null;
 

@@ -122,6 +122,8 @@ export interface MemberState {
   roleId?: string;
   /** 是否为 AI 托管的伪成员（peerId 形如 "ai:&lt;roleId&gt;"）。 */
   isAi?: boolean;
+  /** 该成员是否允许房间内 AI 控制其设备（opt-in）。 */
+  allowAi?: boolean;
 }
 
 /** 场景角色定义（= 成员可认领的头衔）。 */
@@ -171,4 +173,6 @@ export interface StateSlow {
   intervalB: number;
   currentIndexA: number;
   currentIndexB: number;
+  /** 是否允许房间内 AI 角色控制本机设备（opt-in；默认关闭）。 */
+  allowAi?: boolean;
 }
