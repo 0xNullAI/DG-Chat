@@ -11,6 +11,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "cf:dev": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest",
     "android:dev": "npm run dev -w @dg-chat/tauri-android",
@@ -26,12 +28,12 @@
     "@dg-kit/waveforms": "^1.0.1",
     "fflate": "^0.8.2",
     "lucide-react": "^1.11.0",
-    "mqtt": "^5.15.1",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260608.1",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.2.4",
     "@testing-library/jest-dom": "^6.9.1",
@@ -48,6 +50,7 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.9",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "wrangler": "^4.98.0"
   }
 }
