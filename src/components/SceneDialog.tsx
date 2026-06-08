@@ -130,11 +130,12 @@ export function SceneDialog({
                         className="w-full rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
                         style={{ fontSize: '16px' }}
                       />
-                      <input
+                      <textarea
                         value={r.description ?? ''}
                         onChange={e => updateRole(i, { description: e.target.value })}
-                        placeholder="角色描述（可选）"
-                        className="w-full rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--text-soft)] outline-none focus:border-[var(--accent)]"
+                        placeholder={r.aiPlayable ? '角色描述 / AI 人设（性格、口吻、动机…）' : '角色描述（可选）'}
+                        rows={2}
+                        className="w-full resize-none rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--text-soft)] outline-none focus:border-[var(--accent)]"
                         style={{ fontSize: '16px' }}
                       />
                       <label className="flex items-center gap-1.5 text-xs text-[var(--text-soft)]">
@@ -143,18 +144,8 @@ export function SceneDialog({
                           checked={!!r.aiPlayable}
                           onChange={e => updateRole(i, { aiPlayable: e.target.checked })}
                         />
-                        <Bot size={12} /> 可由 AI 扮演
+                        <Bot size={12} /> 可由 AI 扮演（用上面的描述当人设）
                       </label>
-                      {r.aiPlayable && (
-                        <textarea
-                          value={r.aiPersona ?? ''}
-                          onChange={e => updateRole(i, { aiPersona: e.target.value })}
-                          placeholder="AI 人设（性格/口吻/动机，喂给 AI，可选）"
-                          rows={2}
-                          className="w-full resize-none rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--text-soft)] outline-none focus:border-[var(--accent)]"
-                          style={{ fontSize: '16px' }}
-                        />
-                      )}
                     </div>
                     <button
                       onClick={() => removeRole(i)}

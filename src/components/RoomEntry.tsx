@@ -58,22 +58,27 @@ export function RoomEntry({ displayName, onNameChange, onJoin, status, error }: 
           />
         </div>
 
-        {/* 公开开关 */}
+        {/* 公开开关：标签恒为「公开到大厅」，开=公开房、关=私密房 */}
         <button
           type="button"
           onClick={() => setIsPublic(p => !p)}
           disabled={connecting}
-          className="mb-2 flex w-full items-center justify-between rounded-[var(--radius-sm)] border border-[var(--surface-border)] px-3 py-2.5 text-sm transition-colors hover:border-[var(--accent)] disabled:opacity-50"
+          className="mb-2 flex w-full items-center justify-between gap-3 rounded-[var(--radius-sm)] border border-[var(--surface-border)] px-3 py-2.5 text-sm transition-colors hover:border-[var(--accent)] disabled:opacity-50"
         >
-          <span className="flex items-center gap-2 text-[var(--text)]">
-            {isPublic ? <Globe className="h-4 w-4 text-[var(--accent)]" /> : <Lock className="h-4 w-4 text-[var(--text-soft)]" />}
-            {isPublic ? '公开到大厅' : '私密房间'}
+          <span className="flex min-w-0 flex-col items-start">
+            <span className="flex items-center gap-2 text-[var(--text)]">
+              {isPublic ? <Globe className="h-4 w-4 text-[var(--accent)]" /> : <Lock className="h-4 w-4 text-[var(--text-soft)]" />}
+              公开到大厅
+            </span>
+            <span className="mt-0.5 text-left text-[11px] text-[var(--text-faint)]">
+              {isPublic ? '房间将出现在大厅，任何人可加入' : '关闭 = 私密房间，仅凭房间号加入'}
+            </span>
           </span>
           <span
-            className={`relative h-5 w-9 rounded-full transition-colors ${isPublic ? 'bg-[var(--accent)]' : 'bg-[var(--surface-border)]'}`}
+            className={`relative inline-block h-5 w-9 shrink-0 rounded-full transition-colors ${isPublic ? 'bg-[var(--accent)]' : 'bg-[var(--surface-border)]'}`}
           >
             <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isPublic ? 'translate-x-4' : 'translate-x-0.5'}`}
+              className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isPublic ? 'translate-x-4' : 'translate-x-0'}`}
             />
           </span>
         </button>

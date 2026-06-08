@@ -62,8 +62,7 @@ function buildSystemPrompt(
   lines.push('');
   lines.push('【你的身份】');
   lines.push(`你是「${self?.name ?? '未知角色'}」。`);
-  if (self?.aiPersona) lines.push(`人设：${self.aiPersona}`);
-  else if (self?.description) lines.push(`角色描述：${self.description}`);
+  if (self?.description) lines.push(`人设：${self.description}`);
   lines.push('始终以这个角色的身份和口吻发言，不要跳出角色，不要承认自己是 AI。');
   lines.push('');
   const roster = [...members.values()]
