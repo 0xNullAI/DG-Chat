@@ -3,6 +3,7 @@ import { Copy, Check, ChevronRight } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { MemberState, CmdAction, DeviceCommand, WaveformTransfer } from '../lib/protocol';
 import type { WaveformDefinition } from '../lib/waveforms';
+import type { MarketItem } from '../lib/market';
 import { BUILTIN_WAVEFORMS } from '../lib/waveforms';
 import { MemberCard } from './MemberCard';
 import { MemberControl } from './MemberControl';
@@ -15,6 +16,7 @@ interface ControlPanelProps {
   roomId: string | null;
   waveforms: WaveformDefinition[];
   onImportWaveform: (file: File) => Promise<string | null>;
+  onImportMarketWaveform: (item: MarketItem) => void;
   onRemoveWaveform: (id: string) => void;
   selfState: MemberState;
   selfLimitA: number;
@@ -52,7 +54,7 @@ function SelfCard({ member, onClick }: { member: MemberState; onClick: () => voi
   );
 }
 
-export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, roomId, waveforms, onImportWaveform, onRemoveWaveform, selfState, selfLimitA, selfLimitB }: ControlPanelProps) {
+export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, roomId, waveforms, onImportWaveform, onImportMarketWaveform, onRemoveWaveform, selfState, selfLimitA, selfLimitB }: ControlPanelProps) {
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -84,6 +86,7 @@ export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, ro
         onBack={() => setSelectedMember(null)}
         waveforms={targetWaveforms}
         onImportWaveform={onImportWaveform}
+        onImportMarketWaveform={onImportMarketWaveform}
         onRemoveWaveform={onRemoveWaveform}
         isSelf={isSelf}
         limitA={isSelf ? selfLimitA : 200}

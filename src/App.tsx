@@ -416,6 +416,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             roomId={peerRoom.roomId}
             waveforms={waveforms.allWaveforms}
             onImportWaveform={waveforms.importFile}
+            onImportMarketWaveform={waveforms.addMarketWaveform}
             onRemoveWaveform={waveforms.removeWaveform}
             selfState={{
               peerId: 'self',
