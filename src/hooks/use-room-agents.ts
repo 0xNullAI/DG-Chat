@@ -9,8 +9,7 @@
 //    AI 只能作用于 deviceTargets（已把控制权授予该 AI 的成员）。
 //  - 每角色一次只跑一轮；工具循环封顶，防失控。
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { Scene, MemberState, ChatMention, CmdAction, DeviceCommand } from '../lib/protocol';
-import type { ChatMessage } from '../lib/protocol';
+import type { Scene, MemberState, ChatMention, CmdAction, DeviceCommand, ChatMessage } from '../lib/protocol';
 import { loadAiConfig, isAiConfigured } from '../lib/ai-config';
 import { callLlm, type LlmMessage, type LlmTool, type LlmToolCall } from '../lib/llm-client';
 
@@ -18,7 +17,6 @@ import { callLlm, type LlmMessage, type LlmTool, type LlmToolCall } from '../lib
 export interface AgentDeviceTarget {
   peerId: string;
   name: string;
-  state: MemberState;
 }
 
 interface RoomAgentsOptions {

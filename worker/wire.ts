@@ -58,9 +58,9 @@ export interface SceneRole {
   /** 角色名（= 成员头衔）。 */
   name: string;
   description?: string;
-  /** 该角色是否可由 AI 扮演（上传时标注；本次纯人不消费，AI 阶段用）。 */
+  /** 该角色是否可由 AI 扮演（场景上传时标注；房主据此显示「交给 AI」入口）。 */
   aiPlayable?: boolean;
-  /** 预留：AI 扮演该角色时的人设 prompt。本次不用。 */
+  /** AI 扮演该角色时的人设 prompt（性格/口吻/动机，喂给 agent loop 的 system prompt）。 */
   aiPersona?: string;
 }
 

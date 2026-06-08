@@ -131,9 +131,9 @@ export interface SceneRole {
   id: string;
   name: string;
   description?: string;
-  /** 该角色是否可由 AI 扮演（Market 上传标注；本次纯人不消费）。 */
+  /** 该角色是否可由 AI 扮演（Market 上传标注；房主据此显示「交给 AI」入口）。 */
   aiPlayable?: boolean;
-  /** 预留：AI 扮演该角色的人设 prompt。本次不用。 */
+  /** AI 扮演该角色时的人设 prompt（性格/口吻/动机，喂给 agent loop 的 system prompt）。 */
   aiPersona?: string;
 }
 

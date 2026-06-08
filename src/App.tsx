@@ -317,7 +317,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
   // AI 角色大脑（仅房主浏览器实际运行；@AI 角色触发）。
   const agentDeviceTargets: AgentDeviceTarget[] = [...peerRoom.members.values()]
     .filter(m => !m.isAi && m.deviceConnected && m.allowAi)
-    .map(m => ({ peerId: m.peerId, name: m.displayName || m.peerId.slice(0, 6), state: m }));
+    .map(m => ({ peerId: m.peerId, name: m.displayName || m.peerId.slice(0, 6) }));
   useRoomAgents({
     isHost: peerRoom.isHost,
     scene: peerRoom.scene,
