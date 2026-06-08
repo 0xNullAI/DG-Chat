@@ -111,6 +111,8 @@ export class RoomDO extends DurableObject<Env> {
         await this.setAssignments({});
         this.broadcast({ t: 'scene', scene, host });
         this.broadcast({ t: 'role', assignments: {} });
+        // 即时刷新大厅，让场景名（或清除）立刻反映到公开房间卡片。
+        await this.reportLobby(this.ctx.getWebSockets().length);
         return;
       }
 
@@ -308,10 +310,11 @@ export class RoomDO extends DurableObject<Env> {
     const code = (await this.ctx.storage.get<string>('code')) ?? '';
     const name = (await this.ctx.storage.get<string>('roomName')) ?? '';
     if (!code) return;
+    const sceneName = (await this.getScene())?.name || undefined;
     const stub = this.env.LOBBY.get(this.env.LOBBY.idFromName(LOBBY_NAME));
     await stub.fetch('https://lobby/update', {
       method: 'POST',
-      body: JSON.stringify({ code, name, count }),
+      body: JSON.stringify({ code, name, count, sceneName }),
     });
   }
 }

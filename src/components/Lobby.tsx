@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, ArrowLeft, RefreshCw, DoorOpen } from 'lucide-react';
+import { Users, ArrowLeft, RefreshCw, DoorOpen, Drama } from 'lucide-react';
 import { subscribeLobby, fetchLobbyRooms, type LobbyRoom, type LobbyStatus } from '../lib/lobby-client';
 
 /** 房间大厅：列出房主主动公开的房间，点击即跳主页加入。私密房间不会出现在这里。 */
@@ -69,6 +69,12 @@ export function Lobby() {
                     <p className="truncate text-sm font-medium text-[var(--text)]">
                       {room.name || room.code}
                     </p>
+                    {room.sceneName && (
+                      <span className="mt-1 flex w-fit max-w-full items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] text-[var(--accent)]">
+                        <Drama className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{room.sceneName}</span>
+                      </span>
+                    )}
                     <p className="mt-0.5 truncate text-[11px] tabular-nums text-[var(--text-faint)]">
                       #{room.code}
                     </p>
