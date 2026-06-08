@@ -4,7 +4,7 @@ Guidance for Claude Code working in **DG-Chat** — the multi-user P2P room with
 
 ## Project Overview
 
-DG-Chat is a single-package Vite + React 19 SPA. Chat is fully peer-to-peer (PeerJS). Each user can grant remote control of their Coyote to other room members via WebRTC data channels. Hosted on GitHub Pages.
+DG-Chat is a single-package Vite + React 19 SPA. Chat is fully peer-to-peer (PeerJS). Each user can grant remote control of their Coyote to other room members via WebRTC data channels. Hosted on Cloudflare Pages (chat.0xnullai.com).
 
 All BLE protocol + waveform code is reused from [`@dg-kit/*`](https://github.com/0xNullAI/DG-Kit) — DG-Chat owns just the React UI, the P2P layer, and the in-room command routing.
 
@@ -22,6 +22,7 @@ src/
     protocol.ts       P2P message protocol (chat, device commands, waveform transfer)
     commands.ts       in-room command routing
     waveforms.ts      built-ins re-exported from @dg-kit/waveforms + .pulse import + localStorage
+    market.ts         DG-Market client — fetch community waveforms (paired with MarketImportDialog) for "import from market"
   styles/             tailwind tokens
   types/              ambient types (web-bluetooth.d.ts)
 public/               static assets
@@ -37,7 +38,7 @@ public/               static assets
 
 ```bash
 npm install
-npm run dev          # Vite dev server, http://localhost:5174/DG-Chat/
+npm run dev          # Vite dev server, http://localhost:5174/
 npm run build        # tsc -b + Vite build
 npm run preview      # preview the production build
 npm run lint         # eslint

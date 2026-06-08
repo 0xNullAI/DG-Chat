@@ -6,9 +6,11 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![@dg-kit](https://img.shields.io/badge/built%20on-%40dg--kit%2F*-0a84ff)](https://github.com/0xNullAI/DG-Kit)
-[![Demo](https://img.shields.io/badge/demo-online-success)](https://0xnullai.github.io/DG-Chat/)
+[![Demo](https://img.shields.io/badge/demo-online-success)](https://chat.0xnullai.com)
 
 [中文](./README.md) | English
+
+Website: [0xnullai.com](https://0xnullai.com)
 
 </div>
 
@@ -16,7 +18,7 @@
 
 DG-Chat is a browser-based multi-user chat room. Chat is fully peer-to-peer (no server, no chat-log uploads), but the real headline feature is this: **each member can grant remote control of their Coyote to other members in the room**. "Let X take a turn" — they tap your avatar and they're driving your strength sliders, waveform picker, and safety caps live.
 
-Just open the page. Hosted free on GitHub Pages with HTTPS pre-configured.
+Just open the page. Deployed on Cloudflare (chat.0xnullai.com), with HTTPS already configured.
 
 ## Features
 
@@ -25,6 +27,7 @@ Just open the page. Hosted free on GitHub Pages with HTTPS pre-configured.
 - **Remote device control** — hand strength / waveform / limits to a teammate
 - **Responsive layout** — split-pane on desktop, tabbed on mobile
 - **Waveform import** — `.pulse` files and `.zip` packs
+- **Import waveforms from DG-Market** — search the community market and import into your local library in one click
 - **Background-behaviour policy** — choose what happens when the tab loses focus
 - **Fully local** — settings and library stay in `localStorage`, never uploaded
 
@@ -32,7 +35,7 @@ Just open the page. Hosted free on GitHub Pages with HTTPS pre-configured.
 
 ### Try online
 
-Open the [demo](https://0xnullai.github.io/DG-Chat/). Requires **Chrome / Edge** (Web Bluetooth).
+Open the [demo](https://chat.0xnullai.com). Requires **Chrome / Edge** (Web Bluetooth).
 
 ### Local development
 
@@ -43,7 +46,7 @@ npm install
 npm run dev
 ```
 
-Visit http://localhost:5174/DG-Chat/.
+Visit http://localhost:5174/.
 
 ## Usage
 
