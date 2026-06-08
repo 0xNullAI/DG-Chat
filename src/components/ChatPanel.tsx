@@ -18,14 +18,15 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** 把文本里的 @角色名/昵称高亮。 */
-function renderMessageText(text: string, mentions?: ChatMention[]): React.ReactNode {
+/** 把文本里的 @角色名/昵称高亮。自己气泡是 accent 底色，@ 改用下划线+加粗以保证可读。 */
+function renderMessageText(text: string, mentions?: ChatMention[], isSelf = false): React.ReactNode {
   const names = (mentions ?? []).map(m => m.displayName).filter(Boolean);
   if (names.length === 0) return text;
   const re = new RegExp(`(@(?:${names.map(escapeRegExp).join('|')}))`, 'g');
+  const cls = isSelf ? 'font-semibold underline underline-offset-2' : 'font-medium text-[var(--accent)]';
   return text.split(re).map((part, i) =>
     part.startsWith('@') && names.includes(part.slice(1))
-      ? <span key={i} className="font-medium text-[var(--accent)]">{part}</span>
+      ? <span key={i} className={cls}>{part}</span>
       : part,
   );
 }
@@ -206,7 +207,7 @@ export function ChatPanel({ messages, onSend, onSendMedia, members = [], selfId 
                             : 'border-[var(--surface-border)] bg-[var(--bg-elevated)]'))
                     }
                   >
-                    {renderMessageText(msg.text, msg.mentions)}
+                    {renderMessageText(msg.text, msg.mentions, isSelf)}
                   </div>
                 )}
 
