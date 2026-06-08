@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import mqtt from 'mqtt';
+import { connectRoom, type RoomTransport, type TransportStatus } from '../lib/room-transport';
 import type {
   ChatMessage,
+  ChatMedia,
   DeviceCommand,
   MemberState,
   CmdAction,
@@ -12,18 +13,39 @@ import type {
 
 export type RoomStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
-export const DEFAULT_RELAYS = [
-  'wss://broker.emqx.io:8084/mqtt',
-  'wss://broker-cn.emqx.io:8084/mqtt',
-  'wss://public:public@public.cloud.shiftr.io',
-];
+/** 创建/加入房间的选项。公开房间会注册进大厅。 */
+export interface JoinOptions {
+  public?: boolean;
+  roomName?: string;
+}
+
+/** 已上传到 R2、待随聊天消息发出的媒体引用。 */
+export interface OutgoingMedia {
+  kind: 'image' | 'audio';
+  id: string;
+  mime: string;
+  size: number;
+  durationMs?: number;
+  w?: number;
+  h?: number;
+}
+
+/** wire 上的媒体引用（DO/历史回传）。 */
+interface WireMedia {
+  kind: 'image' | 'audio';
+  id: string;
+  mime: string;
+  size: number;
+  durationMs?: number;
+  w?: number;
+  h?: number;
+}
 
 const PRESENCE_INTERVAL_MS = 3000;
 const PRESENCE_TIMEOUT_MS = 10000;
 const FAST_THROTTLE_MS = 200;
-const SEEN_MSG_MAX = 1000;
 
-/** 8 字符随机 ID（替代 36 字符 UUID，dedup 用）。 */
+/** 8 字符随机 ID（消息 id 用）。 */
 function shortId(): string {
   const arr = crypto.getRandomValues(new Uint8Array(6));
   let s = '';
@@ -41,36 +63,30 @@ function generatePeerId(): string {
 
 const selfId = generatePeerId();
 
-/**
- * 传输模型（统一）：
- *
- * 1. 状态广播 owner→all（持续真值）
- *    - state.fast (sf): strength/wave/firing — 200ms 节流，QoS 0；事件驱动 + 心跳被替代
- *    - state.slow (ss): name/battery/queue/playMode/interval/currentIndex — 5s 心跳 + 即时变化，QoS 0
- *
- * 2. 边沿一次性命令 controller→owner（QoS 1，必须送达）
- *    change_wave / start / stop / stop_wave / burst /
- *    fire / fire_stop（旧版兼容） /
- *    vibrate / alert / bg / shake / beep /
- *    set_queue / set_play_mode / set_interval /
- *    fire_release（快速松开路径，让 owner 立刻回落而不必等心跳过期）
- *
- * 3. 心跳命令 controller→owner（QoS 0，按周期重发）
- *    fire_active — 控制者按住期间每 300ms 一次；owner 端 800ms 没刷新即视作松开
- *
- * 4. 高频流命令 controller→owner（QoS 0，最新覆盖前者）
- *    adjust_strength — 配合控制者乐观本地 + 1.5s grace 重新采纳远端
- *
- * 5. Presence peer→all（QoS 0）
- *    每 PRESENCE_INTERVAL_MS 一次心跳，PRESENCE_TIMEOUT_MS 没收到就 removePeer
- */
-const RELIABLE_ACTIONS = new Set<CmdAction>([
-  'change_wave', 'start', 'stop', 'stop_wave', 'burst',
-  'vibrate', 'alert', 'bg', 'shake', 'beep',
-  'fire_release',
-  'set_queue', 'set_play_mode', 'set_interval',
-]);
+/** 把 R2 媒体引用解析为可访问 URL（同源 /api/media/:code/:id）。 */
+function buildMedia(room: string | null, m: WireMedia | undefined): ChatMedia | undefined {
+  if (!m || !room) return undefined;
+  return {
+    kind: m.kind,
+    url: `/api/media/${encodeURIComponent(room)}/${encodeURIComponent(m.id)}`,
+    mime: m.mime,
+    durationMs: m.durationMs,
+    w: m.w,
+    h: m.h,
+  };
+}
 
+/**
+ * 传输模型（Cloudflare RoomDO，单 WebSocket）：
+ *
+ * - 状态广播 owner→all：sf（强度/波形/开火，200ms 节流）、ss（名字/电量/队列/目录，5s 心跳）
+ * - 边沿命令 controller→owner：cmd（定向，to=peerId）
+ * - 波形传输：wave（定向）
+ * - presence：每 3s 一次心跳（携带昵称），10s 没收到即 removePeer（异常断开兜底）
+ * - DO 主动下发：history（加入回放）、sys joined/left（连接级 presence，即时）
+ *
+ * WS 单连接有序可靠，无需 MQTT 的多 broker fan-out / QoS / 消息去重。
+ */
 export function usePeerRoom(displayName: string) {
   const [status, setStatus] = useState<RoomStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -79,17 +95,16 @@ export function usePeerRoom(displayName: string) {
   const [members, setMembers] = useState<Map<string, MemberState>>(new Map());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-  const clientsRef = useRef<mqtt.MqttClient[]>([]);
+  const transportRef = useRef<RoomTransport | null>(null);
   const roomIdRef = useRef<string | null>(null);
+  const joinOptsRef = useRef<JoinOptions>({});
   const onCommandRef = useRef<((cmd: DeviceCommand, peerId: string) => void) | null>(null);
   const onWaveformRef = useRef<((transfer: WaveformTransfer, peerId: string) => void) | null>(null);
   const presenceTimerRef = useRef<number | null>(null);
   const peerTimersRef = useRef<Map<string, number>>(new Map());
   const displayNameRef = useRef(displayName);
   displayNameRef.current = displayName;
-  const seenMsgsRef = useRef<Set<string>>(new Set());
 
-  // Fast-state 节流器（leading + trailing）
   const fastThrottleRef = useRef<{ lastSent: number; pending: StateFast | null; timer: number | null }>({
     lastSent: 0, pending: null, timer: null,
   });
@@ -114,51 +129,24 @@ export function usePeerRoom(displayName: string) {
     peerTimersRef.current.delete(peerId);
   }, []);
 
-  const publishAll = useCallback((topic: string, payload: string, qos: 0 | 1 = 0) => {
-    for (const client of clientsRef.current) {
-      if (client.connected) client.publish(topic, payload, { qos });
-    }
+  const send = useCallback((payload: object) => {
+    transportRef.current?.send(payload);
   }, []);
 
-  const join = useCallback((roomCode: string, relayUrls?: string[]) => {
-    if (clientsRef.current.length > 0) return;
-    const relays = relayUrls && relayUrls.length > 0 ? relayUrls : DEFAULT_RELAYS;
-
+  const join = useCallback((roomCode: string, options?: JoinOptions) => {
+    if (transportRef.current) return;
     setStatus('connecting');
     setError(null);
     roomIdRef.current = roomCode;
+    joinOptsRef.current = options ?? {};
     console.log('[DG-Chat] join', roomCode, 'as', selfId);
 
-    const base = `dg-chat/r/${roomCode}`;
-    const t = {
-      presence: `${base}/presence`,
-      chat:     `${base}/chat`,
-      cmdSelf:  `${base}/cmd/${selfId}`,
-      waveSelf: `${base}/wave/${selfId}`,
-      stateFast: `${base}/sf`,
-      stateSlow: `${base}/ss`,
-      leave:    `${base}/leave`,
-    };
-
-    let anyConnected = false;
-    const allClients: mqtt.MqttClient[] = [];
-
-    function isDuplicate(id: string): boolean {
-      if (seenMsgsRef.current.has(id)) return true;
-      seenMsgsRef.current.add(id);
-      if (seenMsgsRef.current.size > SEEN_MSG_MAX) {
-        const first = seenMsgsRef.current.values().next().value;
-        if (first) seenMsgsRef.current.delete(first);
-      }
-      return false;
-    }
-
     function touchPeer(peerId: string, name?: string) {
+      if (peerId === selfId) return;
       setPeers(prev => prev.includes(peerId) ? prev : [...prev, peerId]);
       const existing = peerTimersRef.current.get(peerId);
       if (existing) clearTimeout(existing);
       peerTimersRef.current.set(peerId, window.setTimeout(() => {
-        console.log('[DG-Chat] peer timeout', peerId.slice(0, 8));
         removePeer(peerId);
       }, PRESENCE_TIMEOUT_MS));
       if (name) {
@@ -172,176 +160,178 @@ export function usePeerRoom(displayName: string) {
       }
     }
 
-    for (const url of relays) {
-      const client = mqtt.connect(url, {
-        clientId: `dg-${selfId.slice(0, 8)}-${Math.random().toString(36).slice(2, 6)}`,
-        clean: true,
-        connectTimeout: 8000,
-        reconnectPeriod: 5000,
-      });
-      allClients.push(client);
+    function handleMessage(data: Record<string, unknown>) {
+      const t = data.t as string;
 
-      client.on('connect', () => {
-        const subs = [t.presence, t.chat, t.cmdSelf, t.waveSelf, t.stateFast, t.stateSlow, t.leave];
-        client.subscribe(subs, { qos: 1 }, (err) => {
-          if (err) { console.warn('[DG-Chat] subscribe', url, err.message); return; }
+      if (t === 'history') {
+        const room = roomIdRef.current;
+        const list = (data.messages as Array<Record<string, unknown>>) ?? [];
+        setMessages(list.map(m => ({
+          id: m.id as string,
+          fromSelf: m._from === selfId,
+          senderId: (m._from as string) ?? '',
+          senderName: (m.n as string) ?? '',
+          text: (m.x as string) ?? '',
+          timestamp: (m.ts as number) ?? 0,
+          media: buildMedia(room, m.m as WireMedia | undefined),
+        })));
+        return;
+      }
 
-          if (!anyConnected) {
-            anyConnected = true;
-            clientsRef.current = allClients;
-            setRoomId(roomCode);
-            setStatus('connected');
+      if (t === 'sys') {
+        const peerId = data.peerId as string;
+        if (data.kind === 'joined') touchPeer(peerId);
+        else if (data.kind === 'left') removePeer(peerId);
+        return;
+      }
 
-            presenceTimerRef.current = window.setInterval(() => {
-              publishAll(t.presence, JSON.stringify({
-                _from: selfId, _id: shortId(), n: displayNameRef.current,
-              }));
-            }, PRESENCE_INTERVAL_MS);
-          }
+      const from = data._from as string;
+      if (!from || from === selfId) return;
 
-          client.publish(t.presence, JSON.stringify({
-            _from: selfId, _id: shortId(), n: displayNameRef.current,
-          }), { qos: 0 });
-        });
-
-        client.on('message', (topic: string, payload: Buffer) => {
-          let data: Record<string, unknown>;
-          try { data = JSON.parse(payload.toString()); } catch { return; }
-          const from = data._from as string;
-          if (!from || from === selfId) return;
-          const id = data._id as string | undefined;
-          if (id && isDuplicate(id)) return;
-
-          if (topic === t.presence) {
-            touchPeer(from, data.n as string | undefined);
-          } else if (topic === t.chat) {
-            setMessages(prev => [...prev, {
-              id: id ?? shortId(),
-              fromSelf: false,
-              senderId: from,
-              senderName: (data.n as string) ?? from.slice(0, 6),
-              text: (data.x as string) ?? '',
-              timestamp: (data.t as number) ?? Date.now(),
-            }]);
-          } else if (topic === t.cmdSelf) {
-            onCommandRef.current?.({
-              action: data.a as CmdAction,
-              c: data.c as 'A' | 'B' | undefined,
-              v: data.v as number | undefined,
-              w: data.w as string | undefined,
-              d: data.d as string | undefined,
-              q: data.q as string[] | undefined,
-              mode: data.mode as DeviceCommand['mode'],
-              iv: data.iv as number | undefined,
-            }, from);
-          } else if (topic === t.waveSelf) {
-            onWaveformRef.current?.({
-              wid: data.wid as string,
-              wn: data.wn as string,
-              fr: data.fr as [number, number][],
-            }, from);
-          } else if (topic === t.stateFast) {
-            touchPeer(from);
-            setMembers(prev => {
-              const cur = prev.get(from) ?? emptyMember(from);
-              const next = new Map(prev);
-              next.set(from, {
-                ...cur,
-                strengthA: (data.sa as number) ?? cur.strengthA,
-                strengthB: (data.sb as number) ?? cur.strengthB,
-                waveA: (data.wa as string | null) ?? null,
-                waveB: (data.wb as string | null) ?? null,
-                firingA: (data.fA as boolean) ?? cur.firingA,
-                firingB: (data.fB as boolean) ?? cur.firingB,
-              });
-              return next;
+      switch (t) {
+        case 'presence':
+          touchPeer(from, data.n as string | undefined);
+          break;
+        case 'chat':
+          setMessages(prev => [...prev, {
+            id: (data.id as string) ?? shortId(),
+            fromSelf: false,
+            senderId: from,
+            senderName: (data.n as string) ?? from.slice(0, 6),
+            text: (data.x as string) ?? '',
+            timestamp: (data.ts as number) ?? Date.now(),
+            media: buildMedia(roomIdRef.current, data.m as WireMedia | undefined),
+          }]);
+          break;
+        case 'cmd':
+          onCommandRef.current?.({
+            action: data.a as CmdAction,
+            c: data.c as 'A' | 'B' | undefined,
+            v: data.v as number | undefined,
+            w: data.w as string | undefined,
+            d: data.d as string | undefined,
+            q: data.q as string[] | undefined,
+            mode: data.mode as DeviceCommand['mode'],
+            iv: data.iv as number | undefined,
+          }, from);
+          break;
+        case 'wave':
+          onWaveformRef.current?.({
+            wid: data.wid as string,
+            wn: data.wn as string,
+            fr: data.fr as [number, number][],
+          }, from);
+          break;
+        case 'sf':
+          touchPeer(from);
+          setMembers(prev => {
+            const cur = prev.get(from) ?? emptyMember(from);
+            const next = new Map(prev);
+            next.set(from, {
+              ...cur,
+              strengthA: (data.sa as number) ?? cur.strengthA,
+              strengthB: (data.sb as number) ?? cur.strengthB,
+              waveA: (data.wa as string | null) ?? null,
+              waveB: (data.wb as string | null) ?? null,
+              firingA: (data.fA as boolean) ?? cur.firingA,
+              firingB: (data.fB as boolean) ?? cur.firingB,
             });
-          } else if (topic === t.stateSlow) {
-            touchPeer(from);
-            setMembers(prev => {
-              const cur = prev.get(from) ?? emptyMember(from);
-              const next = new Map(prev);
-              next.set(from, {
-                ...cur,
-                displayName: (data.n as string) ?? cur.displayName,
-                deviceConnected: (data.dc as boolean) ?? cur.deviceConnected,
-                battery: (data.b as number | null) ?? null,
-                waveformCatalog: (data.cat as MemberState['waveformCatalog']) ?? cur.waveformCatalog,
-                queueA: (data.qA as string[]) ?? cur.queueA,
-                queueB: (data.qB as string[]) ?? cur.queueB,
-                playModeA: (data.mA as MemberState['playModeA']) ?? cur.playModeA,
-                playModeB: (data.mB as MemberState['playModeB']) ?? cur.playModeB,
-                intervalA: (data.iA as number) ?? cur.intervalA,
-                intervalB: (data.iB as number) ?? cur.intervalB,
-                currentIndexA: (data.ciA as number) ?? cur.currentIndexA,
-                currentIndexB: (data.ciB as number) ?? cur.currentIndexB,
-              });
-              return next;
+            return next;
+          });
+          break;
+        case 'ss':
+          touchPeer(from);
+          setMembers(prev => {
+            const cur = prev.get(from) ?? emptyMember(from);
+            const next = new Map(prev);
+            next.set(from, {
+              ...cur,
+              displayName: (data.n as string) ?? cur.displayName,
+              deviceConnected: (data.dc as boolean) ?? cur.deviceConnected,
+              battery: (data.b as number | null) ?? null,
+              waveformCatalog: (data.cat as MemberState['waveformCatalog']) ?? cur.waveformCatalog,
+              queueA: (data.qA as string[]) ?? cur.queueA,
+              queueB: (data.qB as string[]) ?? cur.queueB,
+              playModeA: (data.mA as MemberState['playModeA']) ?? cur.playModeA,
+              playModeB: (data.mB as MemberState['playModeB']) ?? cur.playModeB,
+              intervalA: (data.iA as number) ?? cur.intervalA,
+              intervalB: (data.iB as number) ?? cur.intervalB,
+              currentIndexA: (data.ciA as number) ?? cur.currentIndexA,
+              currentIndexB: (data.ciB as number) ?? cur.currentIndexB,
             });
-          } else if (topic === t.leave) {
-            removePeer(from);
-          }
-        });
-      });
-
-      client.on('error', (err: Error) => console.warn('[DG-Chat] err', url, err.message));
-      client.on('offline',   () => console.warn('[DG-Chat] offline', url));
+            return next;
+          });
+          break;
+        case 'leave':
+          removePeer(from);
+          break;
+      }
     }
 
-    setTimeout(() => {
-      if (!anyConnected) {
-        setStatus('error');
-        setError('无法连接到任何信令服务器');
-        allClients.forEach(c => c.end(true));
-      }
-    }, 12000);
-  }, [removePeer, publishAll]);
+    const transport = connectRoom({
+      code: roomCode,
+      peerId: selfId,
+      onStatus: (s: TransportStatus) => setStatus(s),
+      onOpen: () => {
+        setRoomId(roomCode);
+        // 加入首帧：声明昵称 / 公开标记 / 房间名。重连同样触发 → DO 重新回放历史。
+        send({
+          t: 'hello',
+          name: displayNameRef.current,
+          public: joinOptsRef.current.public,
+          roomName: joinOptsRef.current.roomName,
+        });
+      },
+      onMessage: handleMessage,
+    });
+    transportRef.current = transport;
 
-  const sendMessage = useCallback((text: string) => {
+    // presence 心跳（携带昵称，供他人发现与昵称同步）。
+    if (presenceTimerRef.current) clearInterval(presenceTimerRef.current);
+    presenceTimerRef.current = window.setInterval(() => {
+      send({ t: 'presence', n: displayNameRef.current });
+    }, PRESENCE_INTERVAL_MS);
+  }, [removePeer, send]);
+
+  const sendMessage = useCallback((text: string, media?: OutgoingMedia) => {
     const id = shortId();
     const now = Date.now();
     const name = displayNameRef.current;
+    const room = roomIdRef.current;
+
+    const localMedia: ChatMedia | undefined = media
+      ? buildMedia(room, media)
+      : undefined;
 
     setMessages(prev => [...prev, {
-      id, fromSelf: true, senderId: selfId, senderName: name, text, timestamp: now,
+      id, fromSelf: true, senderId: selfId, senderName: name, text, timestamp: now, media: localMedia,
     }]);
 
-    const room = roomIdRef.current;
-    if (room) {
-      publishAll(`dg-chat/r/${room}/chat`, JSON.stringify({
-        _from: selfId, _id: id, n: name, x: text, t: now,
-      }), 1);
-    }
-  }, [publishAll]);
+    send({
+      t: 'chat', id, n: name, x: text, ts: now,
+      m: media ? {
+        kind: media.kind, id: media.id, mime: media.mime, size: media.size,
+        durationMs: media.durationMs, w: media.w, h: media.h,
+      } : undefined,
+    });
+  }, [send]);
 
   const sendCommand = useCallback((target: string, action: CmdAction, params?: Omit<DeviceCommand, 'action'>) => {
-    const room = roomIdRef.current;
-    if (!room) return;
-    const qos: 0 | 1 = RELIABLE_ACTIONS.has(action) ? 1 : 0;
-    publishAll(`dg-chat/r/${room}/cmd/${target}`, JSON.stringify({
-      _from: selfId, _id: shortId(), a: action, ...params,
-    }), qos);
-  }, [publishAll]);
+    send({ t: 'cmd', to: target, a: action, ...params });
+  }, [send]);
 
   const sendWaveform = useCallback((targetPeerId: string, transfer: WaveformTransfer) => {
-    const room = roomIdRef.current;
-    if (!room) return;
-    publishAll(`dg-chat/r/${room}/wave/${targetPeerId}`, JSON.stringify({
-      _from: selfId, _id: shortId(),
-      wid: transfer.wid, wn: transfer.wn, fr: transfer.fr,
-    }), 1);
-  }, [publishAll]);
+    send({ t: 'wave', to: targetPeerId, wid: transfer.wid, wn: transfer.wn, fr: transfer.fr });
+  }, [send]);
 
   /** 高频状态广播：变化时立即发，节流 200ms。 */
   const broadcastStateFast = useCallback((s: StateFast) => {
-    const room = roomIdRef.current;
-    if (!room) return;
-    const send = (state: StateFast) => {
-      publishAll(`dg-chat/r/${room}/sf`, JSON.stringify({
-        _from: selfId, _id: shortId(),
+    const emit = (state: StateFast) => {
+      send({
+        t: 'sf',
         sa: state.strengthA, sb: state.strengthB, wa: state.waveA, wb: state.waveB,
         fA: state.firingA, fB: state.firingB,
-      }), 0);
+      });
     };
     const ref = fastThrottleRef.current;
     const now = Date.now();
@@ -349,7 +339,7 @@ export function usePeerRoom(displayName: string) {
     if (elapsed >= FAST_THROTTLE_MS) {
       ref.lastSent = now;
       ref.pending = null;
-      send(s);
+      emit(s);
     } else {
       ref.pending = s;
       if (ref.timer == null) {
@@ -359,35 +349,28 @@ export function usePeerRoom(displayName: string) {
             ref.lastSent = Date.now();
             const p = ref.pending;
             ref.pending = null;
-            send(p);
+            emit(p);
           }
         }, FAST_THROTTLE_MS - elapsed);
       }
     }
-  }, [publishAll]);
+  }, [send]);
 
   /** 低频状态广播：5 秒心跳 + catalog 变化时调用一次。 */
   const broadcastStateSlow = useCallback((s: StateSlow) => {
-    const room = roomIdRef.current;
-    if (!room) return;
-    publishAll(`dg-chat/r/${room}/ss`, JSON.stringify({
-      _from: selfId,
+    send({
+      t: 'ss',
       n: s.displayName, dc: s.deviceConnected, b: s.battery,
       ...(s.waveformCatalog ? { cat: s.waveformCatalog } : {}),
       qA: s.queueA, qB: s.queueB,
       mA: s.playModeA, mB: s.playModeB,
       iA: s.intervalA, iB: s.intervalB,
       ciA: s.currentIndexA, ciB: s.currentIndexB,
-    }), 0);
-  }, [publishAll]);
+    });
+  }, [send]);
 
   const leave = useCallback(() => {
-    const room = roomIdRef.current;
-    if (room) {
-      publishAll(`dg-chat/r/${room}/leave`, JSON.stringify({
-        _from: selfId, _id: shortId(),
-      }), 1);
-    }
+    send({ t: 'leave' });
 
     if (presenceTimerRef.current) { clearInterval(presenceTimerRef.current); presenceTimerRef.current = null; }
     peerTimersRef.current.forEach(timer => clearTimeout(timer));
@@ -397,32 +380,24 @@ export function usePeerRoom(displayName: string) {
       fastThrottleRef.current = { lastSent: 0, pending: null, timer: null };
     }
 
-    clientsRef.current.forEach(c => c.end(true));
-    clientsRef.current = [];
+    transportRef.current?.close();
+    transportRef.current = null;
     roomIdRef.current = null;
-    seenMsgsRef.current.clear();
     setStatus('idle');
     setError(null);
     setRoomId(null);
     setPeers([]);
     setMembers(new Map());
     setMessages([]);
-  }, [publishAll]);
+  }, [send]);
 
   useEffect(() => {
     const timers = peerTimersRef.current;
     return () => {
       if (presenceTimerRef.current) clearInterval(presenceTimerRef.current);
       timers.forEach(timer => clearTimeout(timer));
-      const room = roomIdRef.current;
-      if (room) {
-        for (const client of clientsRef.current) {
-          if (client.connected) {
-            client.publish(`dg-chat/r/${room}/leave`, JSON.stringify({ _from: selfId }));
-          }
-        }
-      }
-      clientsRef.current.forEach(c => c.end(true));
+      transportRef.current?.send({ t: 'leave' });
+      transportRef.current?.close();
     };
   }, []);
 
