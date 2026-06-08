@@ -48,7 +48,7 @@ export function Lobby() {
         </span>
       </header>
 
-      <main className="mx-auto w-full max-w-md flex-1 px-4 py-4">
+      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-4">
         {!loaded ? (
           <div className="mt-20 text-center text-sm text-[var(--text-faint)]">加载中...</div>
         ) : rooms.length === 0 ? (
@@ -58,7 +58,7 @@ export function Lobby() {
             <p className="text-xs">回到首页创建一个并勾选「公开到大厅」吧</p>
           </div>
         ) : (
-          <ul className="space-y-2">
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {rooms.map(room => (
               <li key={room.code}>
                 <button
