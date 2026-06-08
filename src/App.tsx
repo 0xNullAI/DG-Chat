@@ -8,6 +8,7 @@ import { SafetyNotice, useSafetyAccepted } from './components/SafetyNotice';
 import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { SceneDialog } from './components/SceneDialog';
+import { SceneMarketDialog } from './components/SceneMarketDialog';
 import { DeviceSafetyButton } from './components/DeviceSafetyButton';
 import { LogOut, Sun, Moon, Drama } from 'lucide-react';
 import { uploadMedia } from './lib/media';
@@ -98,6 +99,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
   );
   const [activeTab, setActiveTab] = useState<'chat' | 'control'>('chat');
   const [sceneOpen, setSceneOpen] = useState(false);
+  const [sceneMarketOpen, setSceneMarketOpen] = useState(false);
   const [theme, setTheme] = useState(() =>
     document.documentElement.getAttribute('data-theme') ?? 'dark'
   );
@@ -496,6 +498,12 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
         onSetScene={peerRoom.setScene}
         onClaimRole={peerRoom.claimRole}
         onReleaseRole={peerRoom.releaseRole}
+        onImportFromMarket={() => setSceneMarketOpen(true)}
+      />
+      <SceneMarketDialog
+        open={sceneMarketOpen}
+        onClose={() => setSceneMarketOpen(false)}
+        onImport={(s) => { peerRoom.setScene(s); setSceneMarketOpen(false); setSceneOpen(true); }}
       />
     </div>
   );
