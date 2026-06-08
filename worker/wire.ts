@@ -12,6 +12,8 @@ export type WireType =
   | 'cmd' // 设备命令，定向（to=peerId）
   | 'wave' // 波形传输，定向（to=peerId）
   | 'leave' // 主动离开
+  | 'scene' // 场景：房主设/改（client→DO）；当前场景+host 广播（DO→client）
+  | 'role' // 角色：认领/释放（client→DO）；角色→peer 分配广播（DO→client）
   | 'history' // DO→client：新人加入回放
   | 'sys'; // DO→client：连接级 presence（joined/left）
 
@@ -42,8 +44,48 @@ export interface WireChat {
   x?: string;
   /** 媒体引用。 */
   m?: MediaRef;
+  /** @ 提及的成员（peerId + 昵称快照）。 */
+  mentions?: { peerId: string; n: string }[];
+  /** 发送者当时的角色头衔快照（无则普通成员）。 */
+  senderRole?: string;
   /** 发送时间戳（毫秒）。 */
   ts: number;
+}
+
+/** 场景角色定义。 */
+export interface SceneRole {
+  id: string;
+  /** 角色名（= 成员头衔）。 */
+  name: string;
+  description?: string;
+  /** 该角色是否可由 AI 扮演（上传时标注；本次纯人不消费，AI 阶段用）。 */
+  aiPlayable?: boolean;
+  /** 预留：AI 扮演该角色时的人设 prompt。本次不用。 */
+  aiPersona?: string;
+}
+
+/** 房间场景（世界观 + 角色 + 玩法元数据）。 */
+export interface Scene {
+  id: string;
+  name: string;
+  /** 世界观/背景描述。 */
+  setting: string;
+  roles: SceneRole[];
+  /** 建议玩家人数（Market 上传时填，房间可选展示）。 */
+  playerCount?: { min?: number; max?: number };
+}
+
+/** DO→client：当前场景 + 房主。scene 为 null 表示未设场景。 */
+export interface WireScene {
+  t: 'scene';
+  scene: Scene | null;
+  host: string; // hostPeerId
+}
+
+/** DO→client：角色→peer 的认领分配（权威态）。 */
+export interface WireRole {
+  t: 'role';
+  assignments: Record<string, string>; // roleId -> peerId
 }
 
 /** 客户端发往 DO 的信封（除 hello 外，业务字段扁平在顶层）。 */
