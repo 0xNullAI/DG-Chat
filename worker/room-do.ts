@@ -4,7 +4,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './index';
 import { deleteRoomMedia } from './media';
-import { LOBBY_NAME, ROOM_GRACE_MS, type WireChat, type Scene } from './wire';
+import { LOBBY_NAME, ROOM_GRACE_MS, RESERVED_ROOM_CODE, RESERVED_ROOM_NAME, type WireChat, type Scene } from './wire';
 
 interface Attachment {
   peerId: string;
@@ -62,9 +62,14 @@ export class RoomDO extends DurableObject<Env> {
       case 'hello': {
         att.name = (msg.name as string) ?? '';
         ws.serializeAttachment(att);
-        if (msg.public) {
+        const helloCode = (await this.ctx.storage.get<string>('code')) ?? '';
+        const reserved = helloCode === RESERVED_ROOM_CODE;
+        if (msg.public || reserved) {
           await this.ctx.storage.put('public', true);
-          await this.ctx.storage.put('roomName', (msg.roomName as string) || att.name || '');
+          await this.ctx.storage.put(
+            'roomName',
+            reserved ? RESERVED_ROOM_NAME : (msg.roomName as string) || att.name || '',
+          );
         }
         // 房主 = 第一个加入者。
         let host = await this.ctx.storage.get<string>('hostPeerId');
@@ -172,8 +177,13 @@ export class RoomDO extends DurableObject<Env> {
   async alarm(): Promise<void> {
     // 宽限期到：若仍无人在线，彻底清理房间。否则有人重连，取消清理。
     if (this.ctx.getWebSockets().length > 0) return;
-    this.sql.exec('DELETE FROM messages');
     const code = (await this.ctx.storage.get<string>('code')) ?? '';
+    // 常驻讨论房永不清理：保留历史，仅上报空闲（大厅由 pinned 兜底保留）。
+    if (code === RESERVED_ROOM_CODE) {
+      await this.reportLobby(0);
+      return;
+    }
+    this.sql.exec('DELETE FROM messages');
     if (code) await deleteRoomMedia(this.env, code);
     await this.reportLobby(0);
     await this.ctx.storage.deleteAll();

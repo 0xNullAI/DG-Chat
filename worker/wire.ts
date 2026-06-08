@@ -116,6 +116,10 @@ export const LOBBY_NAME = 'v1';
 /** 房间空置后清理的宽限期（毫秒）。 */
 export const ROOM_GRACE_MS = 10 * 60 * 1000;
 
+/** 大厅常驻的官方公开讨论房：始终公开、永不清理、空房也显示在大厅顶部。 */
+export const RESERVED_ROOM_CODE = '0xNullAI';
+export const RESERVED_ROOM_NAME = '0xNullAI 公开讨论区';
+
 /** 上传媒体大小上限（字节）。 */
 export const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 
