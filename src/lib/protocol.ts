@@ -14,6 +14,12 @@ export interface ChatMedia {
   h?: number;
 }
 
+/** 消息中 @ 提及的成员。 */
+export interface ChatMention {
+  peerId: string;
+  displayName: string;
+}
+
 export interface ChatMessage {
   id: string;
   fromSelf: boolean;
@@ -22,6 +28,10 @@ export interface ChatMessage {
   text: string;
   timestamp: number;
   media?: ChatMedia;
+  /** @ 提及的成员列表（用于高亮 + 提示）。 */
+  mentions?: ChatMention[];
+  /** 发送者当时的角色头衔（场景扮演时）。 */
+  senderRole?: string;
 }
 
 export type CmdAction =
@@ -107,6 +117,30 @@ export interface MemberState {
   // —— 开火状态新增 ——
   firingA: boolean;
   firingB: boolean;
+  // —— 场景扮演新增 ——
+  /** 当前认领的场景角色 id（无则未认领角色）。 */
+  roleId?: string;
+}
+
+/** 场景角色定义（= 成员可认领的头衔）。 */
+export interface SceneRole {
+  id: string;
+  name: string;
+  description?: string;
+  /** 该角色是否可由 AI 扮演（Market 上传标注；本次纯人不消费）。 */
+  aiPlayable?: boolean;
+  /** 预留：AI 扮演该角色的人设 prompt。本次不用。 */
+  aiPersona?: string;
+}
+
+/** 房间场景：世界观 + 角色 + 玩法元数据。 */
+export interface Scene {
+  id: string;
+  name: string;
+  setting: string;
+  roles: SceneRole[];
+  /** 建议玩家人数。 */
+  playerCount?: { min?: number; max?: number };
 }
 
 /** 高频字段：强度 + 当前波形 ID。任一变化触发立即广播。 */

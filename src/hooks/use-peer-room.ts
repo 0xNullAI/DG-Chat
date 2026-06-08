@@ -3,12 +3,14 @@ import { connectRoom, type RoomTransport, type TransportStatus } from '../lib/ro
 import type {
   ChatMessage,
   ChatMedia,
+  ChatMention,
   DeviceCommand,
   MemberState,
   CmdAction,
   WaveformTransfer,
   StateFast,
   StateSlow,
+  Scene,
 } from '../lib/protocol';
 
 export type RoomStatus = 'idle' | 'connecting' | 'connected' | 'error';
@@ -63,6 +65,19 @@ function generatePeerId(): string {
 
 const selfId = generatePeerId();
 
+/** 查某成员在当前场景里认领角色的名字（= 头衔）。 */
+function roleNameOf(peerId: string, scene: Scene | null, assignments: Record<string, string>): string | undefined {
+  if (!scene) return undefined;
+  const entry = Object.entries(assignments).find(([, pid]) => pid === peerId);
+  return entry ? scene.roles.find(r => r.id === entry[0])?.name : undefined;
+}
+
+/** wire mentions（{peerId,n}）→ ChatMention（{peerId,displayName}）。 */
+function mapMentions(m: unknown): ChatMention[] | undefined {
+  if (!Array.isArray(m)) return undefined;
+  return (m as Array<{ peerId: string; n: string }>).map(x => ({ peerId: x.peerId, displayName: x.n }));
+}
+
 /** 把 R2 媒体引用解析为可访问 URL（同源 /api/media/:code/:id）。 */
 function buildMedia(room: string | null, m: WireMedia | undefined): ChatMedia | undefined {
   if (!m || !room) return undefined;
@@ -94,6 +109,10 @@ export function usePeerRoom(displayName: string) {
   const [peers, setPeers] = useState<string[]>([]);
   const [members, setMembers] = useState<Map<string, MemberState>>(new Map());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // —— 场景扮演 ——
+  const [scene, setSceneState] = useState<Scene | null>(null);
+  const [roleAssignments, setRoleAssignments] = useState<Record<string, string>>({});
+  const [hostPeerId, setHostPeerId] = useState<string | null>(null);
 
   const transportRef = useRef<RoomTransport | null>(null);
   const roomIdRef = useRef<string | null>(null);
@@ -174,6 +193,8 @@ export function usePeerRoom(displayName: string) {
           text: (m.x as string) ?? '',
           timestamp: (m.ts as number) ?? 0,
           media: buildMedia(room, m.m as WireMedia | undefined),
+          mentions: mapMentions(m.mentions),
+          senderRole: m.senderRole as string | undefined,
         })));
         return;
       }
@@ -182,6 +203,17 @@ export function usePeerRoom(displayName: string) {
         const peerId = data.peerId as string;
         if (data.kind === 'joined') touchPeer(peerId);
         else if (data.kind === 'left') removePeer(peerId);
+        return;
+      }
+
+      if (t === 'scene') {
+        setSceneState((data.scene as Scene | null) ?? null);
+        setHostPeerId((data.host as string) ?? null);
+        return;
+      }
+
+      if (t === 'role') {
+        setRoleAssignments((data.assignments as Record<string, string>) ?? {});
         return;
       }
 
@@ -201,6 +233,8 @@ export function usePeerRoom(displayName: string) {
             text: (data.x as string) ?? '',
             timestamp: (data.ts as number) ?? Date.now(),
             media: buildMedia(roomIdRef.current, data.m as WireMedia | undefined),
+            mentions: mapMentions(data.mentions),
+            senderRole: data.senderRole as string | undefined,
           }]);
           break;
         case 'cmd':
@@ -293,7 +327,7 @@ export function usePeerRoom(displayName: string) {
     }, PRESENCE_INTERVAL_MS);
   }, [removePeer, send]);
 
-  const sendMessage = useCallback((text: string, media?: OutgoingMedia) => {
+  const sendMessage = useCallback((text: string, media?: OutgoingMedia, mentions?: ChatMention[]) => {
     const id = shortId();
     const now = Date.now();
     const name = displayNameRef.current;
@@ -302,9 +336,12 @@ export function usePeerRoom(displayName: string) {
     const localMedia: ChatMedia | undefined = media
       ? buildMedia(room, media)
       : undefined;
+    // 本地乐观消息自算头衔（DO 不回发给发送者）。
+    const myRole = roleNameOf(selfId, scene, roleAssignments);
 
     setMessages(prev => [...prev, {
-      id, fromSelf: true, senderId: selfId, senderName: name, text, timestamp: now, media: localMedia,
+      id, fromSelf: true, senderId: selfId, senderName: name, text, timestamp: now,
+      media: localMedia, mentions, senderRole: myRole,
     }]);
 
     send({
@@ -313,7 +350,23 @@ export function usePeerRoom(displayName: string) {
         kind: media.kind, id: media.id, mime: media.mime, size: media.size,
         durationMs: media.durationMs, w: media.w, h: media.h,
       } : undefined,
+      mentions: mentions?.map(x => ({ peerId: x.peerId, n: x.displayName })),
     });
+  }, [send, scene, roleAssignments]);
+
+  /** 房主设/改场景（换场景会清空角色认领）。 */
+  const setScene = useCallback((s: Scene | null) => {
+    send({ t: 'scene', scene: s });
+  }, [send]);
+
+  /** 认领角色（独占）。 */
+  const claimRole = useCallback((roleId: string) => {
+    send({ t: 'role', act: 'claim', roleId });
+  }, [send]);
+
+  /** 释放角色。 */
+  const releaseRole = useCallback((roleId: string) => {
+    send({ t: 'role', act: 'release', roleId });
   }, [send]);
 
   const sendCommand = useCallback((target: string, action: CmdAction, params?: Omit<DeviceCommand, 'action'>) => {
@@ -389,6 +442,9 @@ export function usePeerRoom(displayName: string) {
     setPeers([]);
     setMembers(new Map());
     setMessages([]);
+    setSceneState(null);
+    setRoleAssignments({});
+    setHostPeerId(null);
   }, [send]);
 
   useEffect(() => {
@@ -419,6 +475,15 @@ export function usePeerRoom(displayName: string) {
     broadcastStateSlow,
     setCommandHandler,
     setWaveformHandler,
+    // —— 场景扮演 ——
+    scene,
+    roleAssignments,
+    hostPeerId,
+    isHost: hostPeerId === selfId,
+    myRoleId: Object.entries(roleAssignments).find(([, p]) => p === selfId)?.[0] ?? null,
+    setScene,
+    claimRole,
+    releaseRole,
   };
 }
 

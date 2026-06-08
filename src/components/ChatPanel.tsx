@@ -1,24 +1,65 @@
 import { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Image as ImageIcon, Mic, X } from 'lucide-react';
-import type { ChatMessage } from '../lib/protocol';
+import { ArrowUp, Image as ImageIcon, Mic, X, AtSign } from 'lucide-react';
+import type { ChatMessage, ChatMention } from '../lib/protocol';
 import { compressImage, startRecording, formatDuration, type Recorder } from '../lib/media';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
-  onSend: (text: string) => void;
+  onSend: (text: string, mentions?: ChatMention[]) => void;
   /** 上传并发送媒体（图片/语音）。房间未就绪时上层应忽略。 */
   onSendMedia: (blob: Blob, kind: 'image' | 'audio', meta?: { durationMs?: number; w?: number; h?: number }) => Promise<void>;
+  /** 可 @ 提及的成员（其他成员 + 自己）。 */
+  members?: { peerId: string; name: string }[];
+  /** 自己的 peerId（用于「@到我」高亮）。 */
+  selfId?: string;
 }
 
-export function ChatPanel({ messages, onSend, onSendMedia }: ChatPanelProps) {
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 把文本里的 @角色名/昵称高亮。自己气泡是 accent 底色，@ 改用下划线+加粗以保证可读。 */
+function renderMessageText(text: string, mentions?: ChatMention[], isSelf = false): React.ReactNode {
+  const names = (mentions ?? []).map(m => m.displayName).filter(Boolean);
+  if (names.length === 0) return text;
+  const re = new RegExp(`(@(?:${names.map(escapeRegExp).join('|')}))`, 'g');
+  const cls = isSelf ? 'font-semibold underline underline-offset-2' : 'font-medium text-[var(--accent)]';
+  return text.split(re).map((part, i) =>
+    part.startsWith('@') && names.includes(part.slice(1))
+      ? <span key={i} className={cls}>{part}</span>
+      : part,
+  );
+}
+
+export function ChatPanel({ messages, onSend, onSendMedia, members = [], selfId }: ChatPanelProps) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [recorder, setRecorder] = useState<Recorder | null>(null);
   const [recElapsed, setRecElapsed] = useState(0);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const pendingMentionsRef = useRef<ChatMention[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recStartRef = useRef(0);
+
+  const mentionCandidates = mentionQuery !== null
+    ? members.filter(m => m.name && m.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
+    : [];
+
+  function handleInputChange(value: string) {
+    setDraft(value);
+    const m = /@([^\s@]*)$/.exec(value);
+    setMentionQuery(m ? m[1] : null);
+  }
+
+  function selectMention(member: { peerId: string; name: string }) {
+    setDraft(prev => prev.replace(/@([^\s@]*)$/, `@${member.name} `));
+    if (!pendingMentionsRef.current.some(x => x.peerId === member.peerId)) {
+      pendingMentionsRef.current.push({ peerId: member.peerId, displayName: member.name });
+    }
+    setMentionQuery(null);
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -34,8 +75,12 @@ export function ChatPanel({ messages, onSend, onSendMedia }: ChatPanelProps) {
   function handleSend() {
     const text = draft.trim();
     if (!text) return;
-    onSend(text);
+    // 只保留文本里仍出现的 @ 提及。
+    const mentions = pendingMentionsRef.current.filter(m => text.includes(`@${m.displayName}`));
+    onSend(text, mentions.length ? mentions : undefined);
     setDraft('');
+    pendingMentionsRef.current = [];
+    setMentionQuery(null);
   }
 
   async function handlePickImage(e: React.ChangeEvent<HTMLInputElement>) {
@@ -111,8 +156,13 @@ export function ChatPanel({ messages, onSend, onSendMedia }: ChatPanelProps) {
             >
               <div className="max-w-[75%]">
                 {!isSelf && !grouped && (
-                  <p className="mb-0.5 px-1 text-xs text-[var(--text-faint)]">
-                    {msg.senderName || msg.senderId.slice(0, 6)}
+                  <p className="mb-0.5 flex items-center gap-1 px-1 text-xs text-[var(--text-faint)]">
+                    <span className="truncate">{msg.senderName || msg.senderId.slice(0, 6)}</span>
+                    {msg.senderRole && (
+                      <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--accent)]">
+                        {msg.senderRole}
+                      </span>
+                    )}
                   </p>
                 )}
 
@@ -151,10 +201,13 @@ export function ChatPanel({ messages, onSend, onSendMedia }: ChatPanelProps) {
                       `${hasMedia ? 'mt-1 ' : ''}` +
                       (isSelf
                         ? 'rounded-[14px] rounded-br-[4px] bg-[var(--accent)] px-3 py-2 text-sm text-[var(--button-text)]'
-                        : 'rounded-[14px] rounded-bl-[4px] border border-[var(--surface-border)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text)]')
+                        : 'rounded-[14px] rounded-bl-[4px] border px-3 py-2 text-sm text-[var(--text)] ' +
+                          (selfId && msg.mentions?.some(m => m.peerId === selfId)
+                            ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+                            : 'border-[var(--surface-border)] bg-[var(--bg-elevated)]'))
                     }
                   >
-                    {msg.text}
+                    {renderMessageText(msg.text, msg.mentions, isSelf)}
                   </div>
                 )}
 
@@ -178,7 +231,22 @@ export function ChatPanel({ messages, onSend, onSendMedia }: ChatPanelProps) {
       </div>
 
       {/* Input bar */}
-      <div className="border-t border-[var(--surface-border)] bg-[var(--bg-elevated)] px-3 py-2">
+      <div className="relative border-t border-[var(--surface-border)] bg-[var(--bg-elevated)] px-3 py-2">
+        {/* @ 提及候选 */}
+        {mentionCandidates.length > 0 && (
+          <div className="absolute bottom-full left-3 right-3 mb-1 max-h-44 overflow-y-auto rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg-elevated)] shadow-[var(--shadow)]">
+            {mentionCandidates.map(m => (
+              <button
+                key={m.peerId}
+                onMouseDown={e => { e.preventDefault(); selectMention(m); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text)] hover:bg-[var(--bg-soft)]"
+              >
+                <AtSign size={13} className="shrink-0 text-[var(--text-faint)]" />
+                <span className="truncate">{m.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {recorder ? (
           <div className="flex items-center gap-2">
             <button
@@ -228,8 +296,11 @@ export function ChatPanel({ messages, onSend, onSendMedia }: ChatPanelProps) {
             <input
               type="text"
               value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSend()}
+              onChange={e => handleInputChange(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') setMentionQuery(null);
+                else if (e.key === 'Enter') handleSend();
+              }}
               placeholder={busy ? '发送中...' : '输入消息...'}
               disabled={busy}
               className="flex-1 rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] outline-none focus:border-[var(--accent)] transition-colors disabled:opacity-60"

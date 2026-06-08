@@ -4,7 +4,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './index';
 import { deleteRoomMedia } from './media';
-import { LOBBY_NAME, ROOM_GRACE_MS, type WireChat } from './wire';
+import { LOBBY_NAME, ROOM_GRACE_MS, type WireChat, type Scene } from './wire';
 
 interface Attachment {
   peerId: string;
@@ -17,6 +17,9 @@ const LOBBY_KEEPALIVE_MS = 20 * 1000;
 export class RoomDO extends DurableObject<Env> {
   private sql: SqlStorage;
   private lastLobbyReport = 0;
+  // 场景 / 角色认领的内存缓存（storage 持久；hibernation 唤醒后惰性重载）。
+  private sceneCache: Scene | null | undefined;
+  private assignmentsCache: Record<string, string> | undefined;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -63,8 +66,17 @@ export class RoomDO extends DurableObject<Env> {
           await this.ctx.storage.put('public', true);
           await this.ctx.storage.put('roomName', (msg.roomName as string) || att.name || '');
         }
+        // 房主 = 第一个加入者。
+        let host = await this.ctx.storage.get<string>('hostPeerId');
+        if (!host) {
+          host = att.peerId;
+          await this.ctx.storage.put('hostPeerId', host);
+        }
         // 回放历史给该连接（含此前全部消息与媒体引用）。
         ws.send(JSON.stringify({ t: 'history', messages: this.loadHistory() }));
+        // 同步当前场景 + 房主 + 角色认领状态。
+        ws.send(JSON.stringify({ t: 'scene', scene: await this.getScene(), host }));
+        ws.send(JSON.stringify({ t: 'role', assignments: await this.getAssignments() }));
         // 通知其他成员有人加入。
         this.broadcast({ t: 'sys', kind: 'joined', peerId: att.peerId }, ws);
         await this.reportLobby(this.ctx.getWebSockets().length);
@@ -72,16 +84,51 @@ export class RoomDO extends DurableObject<Env> {
       }
 
       case 'chat': {
+        const scene = await this.getScene();
+        const assignments = await this.getAssignments();
         const chat: WireChat = {
           id: (msg.id as string) ?? crypto.randomUUID(),
           _from: att.peerId,
           n: (msg.n as string) || att.name,
           x: msg.x as string | undefined,
           m: msg.m as WireChat['m'],
+          mentions: msg.mentions as WireChat['mentions'],
+          senderRole: this.roleNameOf(att.peerId, scene, assignments),
           ts: (msg.ts as number) ?? Date.now(),
         };
         this.saveMessage(chat);
         this.broadcast({ t: 'chat', ...chat }, ws);
+        return;
+      }
+
+      case 'scene': {
+        // 仅房主可设/改场景。换场景会清空角色认领（角色 id 变了）。
+        const host = await this.ctx.storage.get<string>('hostPeerId');
+        if (att.peerId !== host) return;
+        const scene = (msg.scene as Scene | null) ?? null;
+        this.sceneCache = scene;
+        await this.ctx.storage.put('scene', scene);
+        await this.setAssignments({});
+        this.broadcast({ t: 'scene', scene, host });
+        this.broadcast({ t: 'role', assignments: {} });
+        return;
+      }
+
+      case 'role': {
+        // 认领（claim，独占）/ 释放（release）。一人最多一个角色。
+        const act = msg.act as 'claim' | 'release';
+        const roleId = msg.roleId as string;
+        const assignments = { ...(await this.getAssignments()) };
+        if (act === 'claim') {
+          for (const [rid, pid] of Object.entries(assignments)) {
+            if (pid === att.peerId) delete assignments[rid];
+          }
+          if (!assignments[roleId]) assignments[roleId] = att.peerId;
+        } else if (assignments[roleId] === att.peerId) {
+          delete assignments[roleId];
+        }
+        await this.setAssignments(assignments);
+        this.broadcast({ t: 'role', assignments });
         return;
       }
 
@@ -140,7 +187,22 @@ export class RoomDO extends DurableObject<Env> {
       att = undefined;
     }
     const remaining = this.ctx.getWebSockets().filter(w => w !== ws);
-    if (att) this.broadcast({ t: 'sys', kind: 'left', peerId: att.peerId }, ws);
+    if (att) {
+      this.broadcast({ t: 'sys', kind: 'left', peerId: att.peerId }, ws);
+      // 释放该成员认领的角色，广播更新。
+      const assignments = { ...(await this.getAssignments()) };
+      let changed = false;
+      for (const [rid, pid] of Object.entries(assignments)) {
+        if (pid === att.peerId) {
+          delete assignments[rid];
+          changed = true;
+        }
+      }
+      if (changed) {
+        await this.setAssignments(assignments);
+        this.broadcast({ t: 'role', assignments }, ws);
+      }
+    }
     await this.reportLobby(remaining.length);
     if (remaining.length === 0) {
       // 房间空：保留历史一个宽限期，期间无人重连则由 alarm 清理。
@@ -181,7 +243,7 @@ export class RoomDO extends DurableObject<Env> {
       chat.id,
       chat._from ?? '',
       chat.n,
-      JSON.stringify({ x: chat.x, m: chat.m }),
+      JSON.stringify({ x: chat.x, m: chat.m, mentions: chat.mentions, senderRole: chat.senderRole }),
       chat.ts,
     );
   }
@@ -191,16 +253,52 @@ export class RoomDO extends DurableObject<Env> {
       .exec('SELECT id, from_id, name, body, ts FROM messages ORDER BY ts ASC, id ASC')
       .toArray();
     return rows.map(r => {
-      const body = JSON.parse(r.body as string) as { x?: string; m?: WireChat['m'] };
+      const body = JSON.parse(r.body as string) as {
+        x?: string;
+        m?: WireChat['m'];
+        mentions?: WireChat['mentions'];
+        senderRole?: string;
+      };
       return {
         id: r.id as string,
         _from: r.from_id as string,
         n: r.name as string,
         x: body.x,
         m: body.m,
+        mentions: body.mentions,
+        senderRole: body.senderRole,
         ts: r.ts as number,
       };
     });
+  }
+
+  // —— 场景 / 角色认领 ——
+
+  private async getScene(): Promise<Scene | null> {
+    if (this.sceneCache === undefined) {
+      this.sceneCache = (await this.ctx.storage.get<Scene>('scene')) ?? null;
+    }
+    return this.sceneCache;
+  }
+
+  private async getAssignments(): Promise<Record<string, string>> {
+    if (this.assignmentsCache === undefined) {
+      this.assignmentsCache = (await this.ctx.storage.get<Record<string, string>>('roleAssignments')) ?? {};
+    }
+    return this.assignmentsCache;
+  }
+
+  private async setAssignments(a: Record<string, string>): Promise<void> {
+    this.assignmentsCache = a;
+    await this.ctx.storage.put('roleAssignments', a);
+  }
+
+  /** 查某成员当前认领角色的名字（= 头衔）。 */
+  private roleNameOf(peerId: string, scene: Scene | null, assignments: Record<string, string>): string | undefined {
+    if (!scene) return undefined;
+    const entry = Object.entries(assignments).find(([, pid]) => pid === peerId);
+    if (!entry) return undefined;
+    return scene.roles.find(r => r.id === entry[0])?.name;
   }
 
   /** 仅公开房间上报大厅；count=0 表示房间空，从大厅移除。 */
