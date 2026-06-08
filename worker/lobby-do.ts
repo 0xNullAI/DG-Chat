@@ -10,6 +10,8 @@ interface LobbyRoom {
   code: string;
   name: string;
   count: number;
+  /** 房间当前场景名（无场景则缺省），用于大厅标注角色扮演房。 */
+  sceneName?: string;
 }
 
 export class LobbyDO extends DurableObject<Env> {
@@ -21,6 +23,12 @@ export class LobbyDO extends DurableObject<Env> {
     this.sql.exec(
       'CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, name TEXT, count INTEGER, ts INTEGER)',
     );
+    // 幂等迁移：已存在的单例旧表补上 scene_name 列（重复执行会抛错，忽略即可）。
+    try {
+      this.sql.exec('ALTER TABLE rooms ADD COLUMN scene_name TEXT');
+    } catch {
+      /* 列已存在 */
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -42,14 +50,15 @@ export class LobbyDO extends DurableObject<Env> {
 
     // 来自 RoomDO 的上报。
     if (url.pathname.endsWith('/update') && request.method === 'POST') {
-      const { code, name, count } = (await request.json()) as LobbyRoom;
+      const { code, name, count, sceneName } = (await request.json()) as LobbyRoom;
       if (count > 0) {
         this.sql.exec(
-          'INSERT OR REPLACE INTO rooms (code, name, count, ts) VALUES (?, ?, ?, ?)',
+          'INSERT OR REPLACE INTO rooms (code, name, count, ts, scene_name) VALUES (?, ?, ?, ?, ?)',
           code,
           name ?? '',
           count,
           Date.now(),
+          sceneName ?? null,
         );
       } else {
         this.sql.exec('DELETE FROM rooms WHERE code = ?', code);
@@ -85,11 +94,19 @@ export class LobbyDO extends DurableObject<Env> {
   private snapshot(): { t: 'lobby'; rooms: LobbyRoom[] } {
     const cutoff = Date.now() - LOBBY_STALE_MS;
     const rows = this.sql
-      .exec('SELECT code, name, count FROM rooms WHERE ts >= ? ORDER BY count DESC, name ASC', cutoff)
+      .exec(
+        'SELECT code, name, count, scene_name FROM rooms WHERE ts >= ? ORDER BY count DESC, name ASC',
+        cutoff,
+      )
       .toArray();
     return {
       t: 'lobby',
-      rooms: rows.map(r => ({ code: r.code as string, name: r.name as string, count: Number(r.count) })),
+      rooms: rows.map(r => ({
+        code: r.code as string,
+        name: r.name as string,
+        count: Number(r.count),
+        sceneName: (r.scene_name as string | null) ?? undefined,
+      })),
     };
   }
 

@@ -3,6 +3,8 @@ export interface LobbyRoom {
   code: string;
   name: string;
   count: number;
+  /** 房间当前场景名（角色扮演房才有）。 */
+  sceneName?: string;
 }
 
 export type LobbyStatus = 'connecting' | 'connected' | 'error';
