@@ -91,14 +91,17 @@ export class RoomDO extends DurableObject<Env> {
       case 'chat': {
         const scene = await this.getScene();
         const assignments = await this.getAssignments();
+        // 房主可代某个 AI 托管角色发言（校验：sender=host 且该角色确为 AI 托管）。
+        const aiAs = await this.aiSenderOk(att.peerId, msg.as, assignments);
+        const fromId = aiAs ?? att.peerId;
         const chat: WireChat = {
           id: (msg.id as string) ?? crypto.randomUUID(),
-          _from: att.peerId,
+          _from: fromId,
           n: (msg.n as string) || att.name,
           x: msg.x as string | undefined,
           m: msg.m as WireChat['m'],
           mentions: msg.mentions as WireChat['mentions'],
-          senderRole: this.roleNameOf(att.peerId, scene, assignments),
+          senderRole: this.roleNameOf(fromId, scene, assignments),
           ts: (msg.ts as number) ?? Date.now(),
         };
         this.saveMessage(chat);
@@ -122,11 +125,23 @@ export class RoomDO extends DurableObject<Env> {
       }
 
       case 'role': {
-        // 认领（claim，独占）/ 释放（release）。一人最多一个角色。
-        const act = msg.act as 'claim' | 'release';
+        // 认领/释放（人）；托管/取消（AI，仅房主）。一人最多一个角色；AI 占位为 "ai:<roleId>"。
+        const act = msg.act as 'claim' | 'release' | 'assign-ai' | 'release-ai';
         const roleId = msg.roleId as string;
         const assignments = { ...(await this.getAssignments()) };
-        if (act === 'claim') {
+        const aiHolder = `ai:${roleId}`;
+        if (act === 'assign-ai' || act === 'release-ai') {
+          const host = await this.ctx.storage.get<string>('hostPeerId');
+          if (att.peerId !== host) return; // 仅房主可托管/取消 AI
+          if (act === 'assign-ai') {
+            const role = (await this.getScene())?.roles.find(r => r.id === roleId);
+            if (!role?.aiPlayable) return; // 仅 aiPlayable 角色可交给 AI
+            assignments[roleId] = aiHolder; // 覆盖现有占用
+          } else if (assignments[roleId] === aiHolder) {
+            delete assignments[roleId];
+          }
+        } else if (act === 'claim') {
+          if (assignments[roleId]?.startsWith('ai:')) return; // AI 占用的角色，需房主先取消 AI
           for (const [rid, pid] of Object.entries(assignments)) {
             if (pid === att.peerId) delete assignments[rid];
           }
@@ -141,8 +156,9 @@ export class RoomDO extends DurableObject<Env> {
 
       case 'cmd':
       case 'wave': {
-        // 定向转发给目标 peer。
-        this.sendTo(msg.to as string, { ...msg, _from: att.peerId });
+        // 定向转发给目标 peer。房主可代 AI 托管角色操作（_from = ai:<roleId>，供设备端授权校验）。
+        const aiAs = await this.aiSenderOk(att.peerId, msg.as, await this.getAssignments());
+        this.sendTo(msg.to as string, { ...msg, _from: aiAs ?? att.peerId });
         return;
       }
 
@@ -305,12 +321,29 @@ export class RoomDO extends DurableObject<Env> {
     await this.ctx.storage.put('roleAssignments', a);
   }
 
-  /** 查某成员当前认领角色的名字（= 头衔）。 */
+  /** 查某成员当前认领角色的名字（= 头衔）。AI 占位 "ai:<roleId>" 同样可解析。 */
   private roleNameOf(peerId: string, scene: Scene | null, assignments: Record<string, string>): string | undefined {
     if (!scene) return undefined;
     const entry = Object.entries(assignments).find(([, pid]) => pid === peerId);
     if (!entry) return undefined;
     return scene.roles.find(r => r.id === entry[0])?.name;
+  }
+
+  /**
+   * 校验「房主代某 AI 托管角色发言/操作」是否合法。
+   * 合法返回该 AI 占位 id（"ai:<roleId>"），否则 null。
+   * 条件：as 形如 ai:<roleId>、发送者为房主、且该角色当前确为 AI 托管。
+   */
+  private async aiSenderOk(
+    senderPeerId: string,
+    as: unknown,
+    assignments: Record<string, string>,
+  ): Promise<string | null> {
+    if (typeof as !== 'string' || !as.startsWith('ai:')) return null;
+    const host = await this.ctx.storage.get<string>('hostPeerId');
+    if (senderPeerId !== host) return null;
+    const roleId = as.slice(3);
+    return assignments[roleId] === as ? as : null;
   }
 
   /** 仅公开房间上报大厅；count=0 表示房间空，从大厅移除。 */

@@ -120,6 +120,8 @@ export interface MemberState {
   // —— 场景扮演新增 ——
   /** 当前认领的场景角色 id（无则未认领角色）。 */
   roleId?: string;
+  /** 是否为 AI 托管的伪成员（peerId 形如 "ai:&lt;roleId&gt;"）。 */
+  isAi?: boolean;
 }
 
 /** 场景角色定义（= 成员可认领的头衔）。 */
