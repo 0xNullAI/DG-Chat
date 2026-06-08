@@ -15,7 +15,7 @@ All BLE protocol + waveform code is reused from [`@dg-kit/*`](https://github.com
 - **`LobbyDO`** (`worker/lobby-do.ts`) — singleton `idFromName("v1")`. Public-room registry, `/ws/lobby` live push + `/api/lobby/rooms` snapshot, stale eviction.
 - **Wire protocol** (`worker/wire.ts`) — the old MQTT topics collapsed into a `t` field. Envelope `t` = type; chat timestamp is `ts` (NOT `t`). Front-end transport is `src/lib/room-transport.ts`; the public hook API of `use-peer-room.ts` is unchanged so `App.tsx` did not change shape.
 - **Media** — images compressed client-side, voice via MediaRecorder; uploaded to R2 (`room/{code}/{id}`) through `/api/upload`, referenced in chat messages, deleted with the room.
-- **Dev**: `npm run dev` (Vite) + `npm run cf:dev` (wrangler :8787); Vite proxies `/ws` and `/api` to the Worker.
+- **Dev**: `npm run dev` (Vite) + `npm run cf:dev` (wrangler :8787); Vite proxies `/ws` and `/api` to the Worker. Vite's ws proxy is flaky for long-lived sockets (EPIPE → transport reconnect → app briefly drops back to RoomEntry); for WebSocket-heavy testing, build (`npm run build`) and hit the worker origin directly at `http://localhost:8787` (same-origin, no proxy). Production is same-origin so this is dev-only.
 
 ## Repo Layout
 
