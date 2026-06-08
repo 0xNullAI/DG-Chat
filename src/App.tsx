@@ -9,6 +9,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { DeviceSafetyButton } from './components/DeviceSafetyButton';
 import { LogOut, Sun, Moon } from 'lucide-react';
+import { uploadMedia } from './lib/media';
 import type { DeviceClientFactory } from './lib/bluetooth';
 import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
 import type { WaveFrame } from './lib/waveforms';
@@ -210,6 +211,22 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
     peerRoom.setCommandHandler(handleCommand);
   }, [peerRoom.setCommandHandler, handleCommand]);
 
+  // 上传媒体到 R2 后作为一条聊天消息发出。
+  const sendMedia = useCallback(async (
+    blob: Blob,
+    kind: 'image' | 'audio',
+    meta?: { durationMs?: number; w?: number; h?: number },
+  ) => {
+    const room = peerRoom.roomId;
+    if (!room) return;
+    try {
+      const media = await uploadMedia(room, blob, kind, meta);
+      peerRoom.sendMessage('', media);
+    } catch (err) {
+      console.error('[DG-Chat] media upload failed', err);
+    }
+  }, [peerRoom.roomId, peerRoom.sendMessage]);
+
   const handleWaveform = useCallback((transfer: WaveformTransfer, _peerId: string) => {
     waveforms.addRemoteWaveform({
       id: transfer.wid,
@@ -305,7 +322,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
       <RoomEntry
         displayName={displayName}
         onNameChange={setDisplayName}
-        onJoin={(code, relays) => peerRoom.join(code, relays)}
+        onJoin={(code, options) => peerRoom.join(code, options)}
         status={peerRoom.status}
         error={peerRoom.error}
       />
@@ -405,6 +422,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
           <ChatPanel
             messages={peerRoom.messages}
             onSend={peerRoom.sendMessage}
+            onSendMedia={sendMedia}
           />
         </div>
         <div className={`${activeTab !== 'control' ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-l border-[var(--surface-border)]`}>

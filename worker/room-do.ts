@@ -1,0 +1,219 @@
+// RoomDO：每个房间一个实例（idFromName(roomCode)）。
+// 职责：WebSocket relay（替代公共 MQTT broker）+ 连接级 presence + 聊天历史(SQLite) 持久化与回放
+//       + 公开房间向 LobbyDO 上报 + 房间空置后宽限清理（历史 + R2 媒体 + 大厅注销）。
+import { DurableObject } from 'cloudflare:workers';
+import type { Env } from './index';
+import { deleteRoomMedia } from './media';
+import { LOBBY_NAME, ROOM_GRACE_MS, type WireChat } from './wire';
+
+interface Attachment {
+  peerId: string;
+  name: string;
+}
+
+/** 公开房间向大厅保活的最小间隔（毫秒）。 */
+const LOBBY_KEEPALIVE_MS = 20 * 1000;
+
+export class RoomDO extends DurableObject<Env> {
+  private sql: SqlStorage;
+  private lastLobbyReport = 0;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.sql.exec(
+      'CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, from_id TEXT, name TEXT, body TEXT, ts INTEGER)',
+    );
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get('Upgrade') !== 'websocket') {
+      return new Response('expected websocket', { status: 426 });
+    }
+    const url = new URL(request.url);
+    const code = url.searchParams.get('code') ?? '';
+    const peerId = url.searchParams.get('id') || crypto.randomUUID();
+    await this.ctx.storage.put('code', code);
+
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ peerId, name: '' } satisfies Attachment);
+
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (typeof message !== 'string') return;
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(message);
+    } catch {
+      return;
+    }
+    const att = ws.deserializeAttachment() as Attachment;
+    const t = msg.t as string;
+
+    switch (t) {
+      case 'hello': {
+        att.name = (msg.name as string) ?? '';
+        ws.serializeAttachment(att);
+        if (msg.public) {
+          await this.ctx.storage.put('public', true);
+          await this.ctx.storage.put('roomName', (msg.roomName as string) || att.name || '');
+        }
+        // 回放历史给该连接（含此前全部消息与媒体引用）。
+        ws.send(JSON.stringify({ t: 'history', messages: this.loadHistory() }));
+        // 通知其他成员有人加入。
+        this.broadcast({ t: 'sys', kind: 'joined', peerId: att.peerId }, ws);
+        await this.reportLobby(this.ctx.getWebSockets().length);
+        return;
+      }
+
+      case 'chat': {
+        const chat: WireChat = {
+          id: (msg.id as string) ?? crypto.randomUUID(),
+          _from: att.peerId,
+          n: (msg.n as string) || att.name,
+          x: msg.x as string | undefined,
+          m: msg.m as WireChat['m'],
+          ts: (msg.ts as number) ?? Date.now(),
+        };
+        this.saveMessage(chat);
+        this.broadcast({ t: 'chat', ...chat }, ws);
+        return;
+      }
+
+      case 'cmd':
+      case 'wave': {
+        // 定向转发给目标 peer。
+        this.sendTo(msg.to as string, { ...msg, _from: att.peerId });
+        return;
+      }
+
+      case 'leave': {
+        this.broadcast({ t: 'sys', kind: 'left', peerId: att.peerId }, ws);
+        return;
+      }
+
+      default: {
+        // sf / ss / presence：广播给房间其他人，注入可信 _from。
+        this.broadcast({ ...msg, _from: att.peerId }, ws);
+        // 借 presence 心跳给大厅保活（节流），避免有人在线却被判过期移除。
+        if (t === 'presence') {
+          const now = Date.now();
+          if (now - this.lastLobbyReport >= LOBBY_KEEPALIVE_MS) {
+            this.lastLobbyReport = now;
+            await this.reportLobby(this.ctx.getWebSockets().length);
+          }
+        }
+      }
+    }
+  }
+
+  async webSocketClose(ws: WebSocket): Promise<void> {
+    await this.onDisconnect(ws);
+  }
+
+  async webSocketError(ws: WebSocket): Promise<void> {
+    await this.onDisconnect(ws);
+  }
+
+  async alarm(): Promise<void> {
+    // 宽限期到：若仍无人在线，彻底清理房间。否则有人重连，取消清理。
+    if (this.ctx.getWebSockets().length > 0) return;
+    this.sql.exec('DELETE FROM messages');
+    const code = (await this.ctx.storage.get<string>('code')) ?? '';
+    if (code) await deleteRoomMedia(this.env, code);
+    await this.reportLobby(0);
+    await this.ctx.storage.deleteAll();
+  }
+
+  // —— 内部 ——
+
+  private async onDisconnect(ws: WebSocket): Promise<void> {
+    let att: Attachment | undefined;
+    try {
+      att = ws.deserializeAttachment() as Attachment;
+    } catch {
+      att = undefined;
+    }
+    const remaining = this.ctx.getWebSockets().filter(w => w !== ws);
+    if (att) this.broadcast({ t: 'sys', kind: 'left', peerId: att.peerId }, ws);
+    await this.reportLobby(remaining.length);
+    if (remaining.length === 0) {
+      // 房间空：保留历史一个宽限期，期间无人重连则由 alarm 清理。
+      await this.ctx.storage.setAlarm(Date.now() + ROOM_GRACE_MS);
+    }
+  }
+
+  private broadcast(payload: unknown, except?: WebSocket): void {
+    const data = JSON.stringify(payload);
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === except) continue;
+      try {
+        ws.send(data);
+      } catch {
+        /* socket gone; ignore */
+      }
+    }
+  }
+
+  private sendTo(toPeerId: string, payload: unknown): void {
+    if (!toPeerId) return;
+    const data = JSON.stringify(payload);
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = ws.deserializeAttachment() as Attachment | null;
+      if (att?.peerId === toPeerId) {
+        try {
+          ws.send(data);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
+  private saveMessage(chat: WireChat): void {
+    this.sql.exec(
+      'INSERT OR REPLACE INTO messages (id, from_id, name, body, ts) VALUES (?, ?, ?, ?, ?)',
+      chat.id,
+      chat._from ?? '',
+      chat.n,
+      JSON.stringify({ x: chat.x, m: chat.m }),
+      chat.ts,
+    );
+  }
+
+  private loadHistory(): WireChat[] {
+    const rows = this.sql
+      .exec('SELECT id, from_id, name, body, ts FROM messages ORDER BY ts ASC, id ASC')
+      .toArray();
+    return rows.map(r => {
+      const body = JSON.parse(r.body as string) as { x?: string; m?: WireChat['m'] };
+      return {
+        id: r.id as string,
+        _from: r.from_id as string,
+        n: r.name as string,
+        x: body.x,
+        m: body.m,
+        ts: r.ts as number,
+      };
+    });
+  }
+
+  /** 仅公开房间上报大厅；count=0 表示房间空，从大厅移除。 */
+  private async reportLobby(count: number): Promise<void> {
+    const isPublic = await this.ctx.storage.get<boolean>('public');
+    if (!isPublic) return;
+    const code = (await this.ctx.storage.get<string>('code')) ?? '';
+    const name = (await this.ctx.storage.get<string>('roomName')) ?? '';
+    if (!code) return;
+    const stub = this.env.LOBBY.get(this.env.LOBBY.idFromName(LOBBY_NAME));
+    await stub.fetch('https://lobby/update', {
+      method: 'POST',
+      body: JSON.stringify({ code, name, count }),
+    });
+  }
+}

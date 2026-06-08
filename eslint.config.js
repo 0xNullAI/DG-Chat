@@ -15,6 +15,8 @@ export default defineConfig([
   ]),
   {
     files: ['**/*.{ts,tsx}'],
+    // worker/ 是 Cloudflare Workers 运行时（无 DOM、无 React），单独配置见下。
+    ignores: ['worker/**'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
@@ -24,6 +26,14 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+    },
+  },
+  {
+    files: ['worker/**/*.ts'],
+    extends: [js.configs.recommended, tseslint.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2023,
+      globals: globals.serviceworker,
     },
   },
 ])
