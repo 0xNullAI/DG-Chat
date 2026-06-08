@@ -23,7 +23,7 @@ export interface MarketScenarioContent {
 /** 多人场景：世界观 + 角色 + 玩法元数据。 */
 export interface MarketMultiSceneContent {
   setting: string;
-  roles: { name: string; description?: string; aiPlayable?: boolean }[];
+  roles: { name: string; description?: string; aiPlayable?: boolean; aiPersona?: string }[];
   playerCount?: { min: number; max: number };
   aiMode?: 'none' | 'solo' | 'multi';
 }

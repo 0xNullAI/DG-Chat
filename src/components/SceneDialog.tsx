@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Plus, Trash2, Crown, UserPlus, LogOut, Store } from 'lucide-react';
+import { X, Plus, Trash2, Crown, UserPlus, LogOut, Store, Bot } from 'lucide-react';
 import type { Scene, SceneRole, MemberState } from '../lib/protocol';
 
 interface SceneDialogProps {
@@ -14,6 +14,9 @@ interface SceneDialogProps {
   onSetScene: (scene: Scene | null) => void;
   onClaimRole: (roleId: string) => void;
   onReleaseRole: (roleId: string) => void;
+  /** 房主：把某 aiPlayable 角色交给 AI / 取消。 */
+  onAssignAi: (roleId: string) => void;
+  onReleaseAi: (roleId: string) => void;
   /** 打开「从市场导入场景」（Part C）。 */
   onImportFromMarket?: () => void;
 }
@@ -28,7 +31,7 @@ function emptyDraft(): Scene {
 
 export function SceneDialog({
   open, onClose, scene, roleAssignments, members, selfId, selfName,
-  isHost, onSetScene, onClaimRole, onReleaseRole, onImportFromMarket,
+  isHost, onSetScene, onClaimRole, onReleaseRole, onAssignAi, onReleaseAi, onImportFromMarket,
 }: SceneDialogProps) {
   // 房主编辑态：null = 展示态；非 null = 编辑表单
   const [draft, setDraft] = useState<Scene | null>(null);
@@ -134,6 +137,24 @@ export function SceneDialog({
                         className="w-full rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--text-soft)] outline-none focus:border-[var(--accent)]"
                         style={{ fontSize: '16px' }}
                       />
+                      <label className="flex items-center gap-1.5 text-xs text-[var(--text-soft)]">
+                        <input
+                          type="checkbox"
+                          checked={!!r.aiPlayable}
+                          onChange={e => updateRole(i, { aiPlayable: e.target.checked })}
+                        />
+                        <Bot size={12} /> 可由 AI 扮演
+                      </label>
+                      {r.aiPlayable && (
+                        <textarea
+                          value={r.aiPersona ?? ''}
+                          onChange={e => updateRole(i, { aiPersona: e.target.value })}
+                          placeholder="AI 人设（性格/口吻/动机，喂给 AI，可选）"
+                          rows={2}
+                          className="w-full resize-none rounded-[var(--radius-sm)] border border-[var(--surface-border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--text-soft)] outline-none focus:border-[var(--accent)]"
+                          style={{ fontSize: '16px' }}
+                        />
+                      )}
                     </div>
                     <button
                       onClick={() => removeRole(i)}
@@ -169,13 +190,26 @@ export function SceneDialog({
                 {scene.roles.map(role => {
                   const holder = roleAssignments[role.id];
                   const mine = holder === selfId;
+                  const aiHeld = holder === `ai:${role.id}`;
                   return (
                     <div key={role.id} className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--surface-border)] px-3 py-2">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-[var(--text)]">{role.name}</p>
+                        <p className="flex items-center gap-1.5 truncate text-sm font-medium text-[var(--text)]">
+                          {role.name}
+                          {role.aiPlayable && <Bot size={12} className="shrink-0 text-[var(--text-faint)]" />}
+                        </p>
                         {role.description && <p className="truncate text-xs text-[var(--text-faint)]">{role.description}</p>}
                       </div>
-                      {holder ? (
+                      {aiHeld ? (
+                        <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--accent)]">
+                          <Bot size={12} /> AI
+                          {isHost && (
+                            <button onClick={() => onReleaseAi(role.id)} className="ml-1 rounded-[var(--radius-sm)] border border-[var(--surface-border)] px-1.5 py-0.5 text-[var(--text-soft)] hover:text-[var(--danger)]">
+                              取消
+                            </button>
+                          )}
+                        </span>
+                      ) : holder ? (
                         mine ? (
                           <button onClick={() => onReleaseRole(role.id)} className="flex shrink-0 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--surface-border)] px-2.5 py-1 text-xs text-[var(--text-soft)] hover:text-[var(--danger)]">
                             <LogOut size={12} /> 释放
@@ -184,9 +218,16 @@ export function SceneDialog({
                           <span className="shrink-0 truncate text-xs text-[var(--text-faint)]">{nameOf(holder)}</span>
                         )
                       ) : (
-                        <button onClick={() => onClaimRole(role.id)} className="flex shrink-0 items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--accent-soft)] px-2.5 py-1 text-xs text-[var(--accent)] hover:opacity-90">
-                          <UserPlus size={12} /> 认领
-                        </button>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button onClick={() => onClaimRole(role.id)} className="flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--accent-soft)] px-2.5 py-1 text-xs text-[var(--accent)] hover:opacity-90">
+                            <UserPlus size={12} /> 认领
+                          </button>
+                          {isHost && role.aiPlayable && (
+                            <button onClick={() => onAssignAi(role.id)} className="flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--surface-border)] px-2 py-1 text-xs text-[var(--text-soft)] hover:border-[var(--accent)] hover:text-[var(--accent)]" title="交给 AI 扮演">
+                              <Bot size={12} /> AI
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   );

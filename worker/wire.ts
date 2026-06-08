@@ -58,9 +58,9 @@ export interface SceneRole {
   /** 角色名（= 成员头衔）。 */
   name: string;
   description?: string;
-  /** 该角色是否可由 AI 扮演（上传时标注；本次纯人不消费，AI 阶段用）。 */
+  /** 该角色是否可由 AI 扮演（场景上传时标注；房主据此显示「交给 AI」入口）。 */
   aiPlayable?: boolean;
-  /** 预留：AI 扮演该角色时的人设 prompt。本次不用。 */
+  /** AI 扮演该角色时的人设 prompt（性格/口吻/动机，喂给 agent loop 的 system prompt）。 */
   aiPersona?: string;
 }
 
@@ -115,6 +115,10 @@ export const LOBBY_NAME = 'v1';
 
 /** 房间空置后清理的宽限期（毫秒）。 */
 export const ROOM_GRACE_MS = 10 * 60 * 1000;
+
+/** 大厅常驻的官方公开讨论房：始终公开、永不清理、空房也显示在大厅顶部。 */
+export const RESERVED_ROOM_CODE = '0xNullAI';
+export const RESERVED_ROOM_NAME = '0xNullAI 公开讨论区';
 
 /** 上传媒体大小上限（字节）。 */
 export const MAX_MEDIA_BYTES = 8 * 1024 * 1024;

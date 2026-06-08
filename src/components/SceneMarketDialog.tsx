@@ -14,7 +14,13 @@ function toScene(item: MarketItem): Scene {
     id: `market-${item.id}`,
     name: item.name,
     setting: c.setting,
-    roles: (c.roles ?? []).map(r => ({ id: genId(), name: r.name, description: r.description, aiPlayable: r.aiPlayable })),
+    roles: (c.roles ?? []).map(r => ({
+      id: genId(),
+      name: r.name,
+      description: r.description,
+      aiPlayable: r.aiPlayable,
+      aiPersona: r.aiPersona,
+    })),
     playerCount: c.playerCount,
   };
 }

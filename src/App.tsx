@@ -9,8 +9,10 @@ import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { SceneDialog } from './components/SceneDialog';
 import { SceneMarketDialog } from './components/SceneMarketDialog';
+import { AiSettingsDialog } from './components/AiSettingsDialog';
 import { DeviceSafetyButton } from './components/DeviceSafetyButton';
-import { LogOut, Sun, Moon, Drama } from 'lucide-react';
+import { useRoomAgents, type AgentDeviceTarget } from './hooks/use-room-agents';
+import { LogOut, Sun, Moon, Drama, Bot } from 'lucide-react';
 import { uploadMedia } from './lib/media';
 import type { DeviceClientFactory } from './lib/bluetooth';
 import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
@@ -100,6 +102,8 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
   const [activeTab, setActiveTab] = useState<'chat' | 'control'>('chat');
   const [sceneOpen, setSceneOpen] = useState(false);
   const [sceneMarketOpen, setSceneMarketOpen] = useState(false);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [allowAi, setAllowAi] = useState(() => localStorage.getItem('dg-chat-allow-ai') === '1');
   const [theme, setTheme] = useState(() =>
     document.documentElement.getAttribute('data-theme') ?? 'dark'
   );
@@ -293,6 +297,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
         playModeA, playModeB,
         intervalA: intervalASec, intervalB: intervalBSec,
         currentIndexA, currentIndexB,
+        allowAi,
       });
     };
     send();
@@ -302,7 +307,27 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
       displayName, device.connected, device.battery,
       waveforms.allWaveforms.length,
       queueA, queueB, playModeA, playModeB,
-      intervalASec, intervalBSec, currentIndexA, currentIndexB]);
+      intervalASec, intervalBSec, currentIndexA, currentIndexB, allowAi]);
+
+  // 持久化「允许 AI 控制」开关。
+  useEffect(() => {
+    localStorage.setItem('dg-chat-allow-ai', allowAi ? '1' : '0');
+  }, [allowAi]);
+
+  // AI 角色大脑（仅房主浏览器实际运行；@AI 角色触发）。
+  const agentDeviceTargets: AgentDeviceTarget[] = [...peerRoom.members.values()]
+    .filter(m => !m.isAi && m.deviceConnected && m.allowAi)
+    .map(m => ({ peerId: m.peerId, name: m.displayName || m.peerId.slice(0, 6) }));
+  useRoomAgents({
+    isHost: peerRoom.isHost,
+    scene: peerRoom.scene,
+    roleAssignments: peerRoom.roleAssignments,
+    members: peerRoom.members,
+    messages: peerRoom.messages,
+    deviceTargets: agentDeviceTargets,
+    sendChatAs: peerRoom.sendChatAs,
+    sendCommandAs: peerRoom.sendCommandAs,
+  });
 
   // A/B 通道：被控方权威定时切换（自己持有真值）
   useChannelRotation('A', device.waveIdA, queueA, playModeA, intervalASec, setCurrentIndexA, deviceRef, waveformsRef);
@@ -372,6 +397,24 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
           >
             <Drama className="h-4 w-4" />
           </button>
+          {/* AI 设置（房主配置模型）+ 允许 AI 控制本机设备开关 */}
+          <button
+            onClick={() => setAiSettingsOpen(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-[10px] text-[var(--text-soft)] transition-colors hover:bg-[var(--bg-soft)]"
+            title="AI 设置"
+          >
+            <Bot className="h-4 w-4" />
+          </button>
+          {device.connected && (
+            <button
+              onClick={() => setAllowAi(v => !v)}
+              className={`flex h-9 items-center gap-1 rounded-[10px] px-2 text-[11px] transition-colors hover:bg-[var(--bg-soft)] ${allowAi ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'}`}
+              title={allowAi ? 'AI 可控制你的设备，点击关闭' : '允许房间内 AI 控制你的设备'}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              {allowAi ? '允许AI' : '禁AI'}
+            </button>
+          )}
           {/* 主题切换 */}
           <button
             onClick={() => {
@@ -444,7 +487,13 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             messages={peerRoom.messages}
             onSend={(text, mentions) => peerRoom.sendMessage(text, undefined, mentions)}
             onSendMedia={sendMedia}
-            members={peerRoom.peers.map(p => ({ peerId: p, name: peerRoom.members.get(p)?.displayName || p.slice(0, 6) }))}
+            members={[
+              ...peerRoom.peers.map(p => ({ peerId: p, name: peerRoom.members.get(p)?.displayName || p.slice(0, 6) })),
+              // AI 托管角色作为可 @ 的伪成员（peerId = "ai:<roleId>"）。
+              ...[...peerRoom.members.values()]
+                .filter(m => m.isAi)
+                .map(m => ({ peerId: m.peerId, name: m.displayName })),
+            ]}
             selfId={peerRoom.selfId}
           />
         </div>
@@ -498,6 +547,8 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
         onSetScene={peerRoom.setScene}
         onClaimRole={peerRoom.claimRole}
         onReleaseRole={peerRoom.releaseRole}
+        onAssignAi={peerRoom.assignAi}
+        onReleaseAi={peerRoom.releaseAi}
         onImportFromMarket={() => setSceneMarketOpen(true)}
       />
       <SceneMarketDialog
@@ -505,6 +556,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
         onClose={() => setSceneMarketOpen(false)}
         onImport={(s) => { peerRoom.setScene(s); setSceneMarketOpen(false); setSceneOpen(true); }}
       />
+      <AiSettingsDialog open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
     </div>
   );
 }
