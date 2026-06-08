@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Trash2, Zap, Repeat, Repeat1, Shuffle, Timer } from 'lucide-react';
+import { ArrowLeft, Bluetooth, BatteryMedium, Play, Pause, RotateCcw, Upload, Store, Trash2, Zap, Repeat, Repeat1, Shuffle, Timer } from 'lucide-react';
 import type { CmdAction, DeviceCommand, MemberState, WaveformTransfer } from '../lib/protocol';
+import type { MarketItem } from '../lib/market';
+import { MarketImportDialog } from './MarketImportDialog';
 
 function useRepeatAction(action: () => void, initialDelay = 400, repeatInterval = 100) {
   const timerRef = useRef<number | null>(null);
@@ -52,6 +54,7 @@ interface MemberControlProps {
   onBack: () => void;
   waveforms: WaveformDefinition[];
   onImportWaveform: (file: File) => Promise<string | null>;
+  onImportMarketWaveform: (item: MarketItem) => void;
   onRemoveWaveform: (id: string) => void;
   isSelf: boolean;
   limitA: number;
@@ -128,11 +131,12 @@ function FireCircle({ label, strength, maxStrength, disabled, firing, onStrength
 
 export function MemberControl({
   peerId, member, onSendCommand, onSendWaveform, onBack,
-  waveforms, onImportWaveform, onRemoveWaveform,
+  waveforms, onImportWaveform, onImportMarketWaveform, onRemoveWaveform,
   isSelf, limitA, limitB,
 }: MemberControlProps) {
   const [waveTab, setWaveTab] = useState<'A' | 'B'>('A');
   const [firePopOpen, setFirePopOpen] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const [popAnchorTop, setPopAnchorTop] = useState(0);
 
@@ -516,6 +520,14 @@ export function MemberControl({
               波形{currentPlaylist.length > 0 ? ` (已选 ${currentPlaylist.length})` : ''}
             </p>
             <div className="flex items-center gap-1">
+              {isSelf && (
+                <button
+                  onClick={() => setMarketOpen(true)}
+                  className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
+                >
+                  <Store size={12} /> 从市场导入
+                </button>
+              )}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
@@ -551,6 +563,12 @@ export function MemberControl({
         </div>
 
       </div>
+
+      <MarketImportDialog
+        open={marketOpen}
+        onClose={() => setMarketOpen(false)}
+        onImport={onImportMarketWaveform}
+      />
 
       <Popover open={firePopOpen} onOpenChange={setFirePopOpen} title="一键开火" anchorTop={popAnchorTop}>
         <p className="mb-3 text-center text-xs text-[var(--text-faint)]">按住增加强度，松开恢复</p>

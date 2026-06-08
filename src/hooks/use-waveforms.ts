@@ -4,8 +4,10 @@ import {
   loadCustomWaveforms,
   saveCustomWaveforms,
   parseImportFile,
+  marketItemToWaveform,
   type WaveformDefinition,
 } from '../lib/waveforms';
+import type { MarketItem } from '../lib/market';
 
 const HIDDEN_KEY = 'dg-chat-hidden-builtins';
 
@@ -43,6 +45,12 @@ export function useWaveforms() {
     setCustomWaveforms(prev => prev.some(w => w.id === waveform.id) ? prev : [...prev, { ...waveform, custom: true }]);
   }, []);
 
+  // 从市场导入：映射成 WaveformDefinition（frames 原样透传），按 market- 前缀 id 去重后持久化。
+  const addMarketWaveform = useCallback((item: MarketItem) => {
+    const waveform = marketItemToWaveform(item);
+    setCustomWaveforms(prev => prev.some(w => w.id === waveform.id) ? prev : [...prev, waveform]);
+  }, []);
+
   // builtin → 隐藏到 localStorage；custom → 真删
   const removeWaveform = useCallback((id: string) => {
     if (BUILTIN_WAVEFORMS.some(w => w.id === id)) {
@@ -67,6 +75,7 @@ export function useWaveforms() {
     customWaveforms,
     importFile,
     addRemoteWaveform,
+    addMarketWaveform,
     removeWaveform,
     restoreDefaults,
     getWaveform,
