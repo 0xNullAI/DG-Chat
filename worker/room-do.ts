@@ -105,7 +105,9 @@ export class RoomDO extends DurableObject<Env> {
           ts: (msg.ts as number) ?? Date.now(),
         };
         this.saveMessage(chat);
-        this.broadcast({ t: 'chat', ...chat }, ws);
+        // 普通消息：发送者已有乐观副本，广播时排除自己；
+        // AI 代发消息：房主本地无副本，需广播给所有人（含房主）。
+        this.broadcast({ t: 'chat', ...chat }, aiAs ? undefined : ws);
         return;
       }
 
