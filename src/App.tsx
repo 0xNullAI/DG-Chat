@@ -7,8 +7,10 @@ import { RoomEntry } from './components/RoomEntry';
 import { SafetyNotice, useSafetyAccepted } from './components/SafetyNotice';
 import { ChatPanel } from './components/ChatPanel';
 import { ControlPanel } from './components/ControlPanel';
+import { SceneDialog } from './components/SceneDialog';
+import { SceneMarketDialog } from './components/SceneMarketDialog';
 import { DeviceSafetyButton } from './components/DeviceSafetyButton';
-import { LogOut, Sun, Moon } from 'lucide-react';
+import { LogOut, Sun, Moon, Drama } from 'lucide-react';
 import { uploadMedia } from './lib/media';
 import type { DeviceClientFactory } from './lib/bluetooth';
 import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
@@ -96,6 +98,8 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
     localStorage.getItem('dg-chat-name') ?? ''
   );
   const [activeTab, setActiveTab] = useState<'chat' | 'control'>('chat');
+  const [sceneOpen, setSceneOpen] = useState(false);
+  const [sceneMarketOpen, setSceneMarketOpen] = useState(false);
   const [theme, setTheme] = useState(() =>
     document.documentElement.getAttribute('data-theme') ?? 'dark'
   );
@@ -210,6 +214,15 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
   useEffect(() => {
     peerRoom.setCommandHandler(handleCommand);
   }, [peerRoom.setCommandHandler, handleCommand]);
+
+  // 场景角色头衔派生（peerId → 角色名）。
+  const roleNameFor = useCallback((peerId: string): string | undefined => {
+    const sc = peerRoom.scene;
+    if (!sc) return undefined;
+    const entry = Object.entries(peerRoom.roleAssignments).find(([, p]) => p === peerId);
+    return entry ? sc.roles.find(r => r.id === entry[0])?.name : undefined;
+  }, [peerRoom.scene, peerRoom.roleAssignments]);
+  const selfRoleName = roleNameFor(peerRoom.selfId);
 
   // 上传媒体到 R2 后作为一条聊天消息发出。
   const sendMedia = useCallback(async (
@@ -351,6 +364,14 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
           )}
         </div>
         <div className="flex items-center gap-1.5">
+          {/* 房间场景 */}
+          <button
+            onClick={() => setSceneOpen(true)}
+            className={`flex h-9 w-9 items-center justify-center rounded-[10px] transition-colors hover:bg-[var(--bg-soft)] ${peerRoom.scene ? 'text-[var(--accent)]' : 'text-[var(--text-soft)]'}`}
+            title="房间场景"
+          >
+            <Drama className="h-4 w-4" />
+          </button>
           {/* 主题切换 */}
           <button
             onClick={() => {
@@ -421,8 +442,10 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
         <div className={`${activeTab !== 'chat' ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col`}>
           <ChatPanel
             messages={peerRoom.messages}
-            onSend={peerRoom.sendMessage}
+            onSend={(text, mentions) => peerRoom.sendMessage(text, undefined, mentions)}
             onSendMedia={sendMedia}
+            members={peerRoom.peers.map(p => ({ peerId: p, name: peerRoom.members.get(p)?.displayName || p.slice(0, 6) }))}
+            selfId={peerRoom.selfId}
           />
         </div>
         <div className={`${activeTab !== 'control' ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-l border-[var(--surface-border)]`}>
@@ -454,12 +477,34 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             } satisfies MemberState}
             selfLimitA={device.limitA}
             selfLimitB={device.limitB}
+            selfRoleName={selfRoleName}
+            roleNameFor={roleNameFor}
           />
         </div>
       </div>
       <footer className="shrink-0 border-t border-[var(--surface-border)] bg-[var(--bg-elevated)] py-1.5 text-center text-[10px] text-[var(--text-faint)]">
         本项目仅供学习交流使用，请遵守当地法律法规。<a href="https://github.com/0xNullAI/DG-Chat" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">GitHub</a>
       </footer>
+
+      <SceneDialog
+        open={sceneOpen}
+        onClose={() => setSceneOpen(false)}
+        scene={peerRoom.scene}
+        roleAssignments={peerRoom.roleAssignments}
+        members={peerRoom.members}
+        selfId={peerRoom.selfId}
+        selfName={displayName}
+        isHost={peerRoom.isHost}
+        onSetScene={peerRoom.setScene}
+        onClaimRole={peerRoom.claimRole}
+        onReleaseRole={peerRoom.releaseRole}
+        onImportFromMarket={() => setSceneMarketOpen(true)}
+      />
+      <SceneMarketDialog
+        open={sceneMarketOpen}
+        onClose={() => setSceneMarketOpen(false)}
+        onImport={(s) => { peerRoom.setScene(s); setSceneMarketOpen(false); setSceneOpen(true); }}
+      />
     </div>
   );
 }

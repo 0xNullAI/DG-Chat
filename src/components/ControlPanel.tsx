@@ -21,9 +21,13 @@ interface ControlPanelProps {
   selfState: MemberState;
   selfLimitA: number;
   selfLimitB: number;
+  /** 自己的角色头衔。 */
+  selfRoleName?: string;
+  /** 查某 peer 的角色头衔（场景扮演）。 */
+  roleNameFor?: (peerId: string) => string | undefined;
 }
 
-function SelfCard({ member, onClick }: { member: MemberState; onClick: () => void }) {
+function SelfCard({ member, onClick, roleName }: { member: MemberState; onClick: () => void; roleName?: string }) {
   const initial = (member.displayName?.[0] || '?').toUpperCase();
   return (
     <div
@@ -34,7 +38,10 @@ function SelfCard({ member, onClick }: { member: MemberState; onClick: () => voi
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <p className="truncate text-sm font-medium text-[var(--text)]">{member.displayName}</p>
-          <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--accent)]">我</span>
+          <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--accent)]">我</span>
+          {roleName && (
+            <span className="shrink-0 truncate rounded-full bg-[var(--bg-soft)] px-1.5 py-0.5 text-[10px] text-[var(--text-soft)]">{roleName}</span>
+          )}
           <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${member.deviceConnected ? 'bg-[var(--success)]' : 'bg-[var(--text-faint)]'}`} />
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--text-soft)]">
@@ -54,7 +61,7 @@ function SelfCard({ member, onClick }: { member: MemberState; onClick: () => voi
   );
 }
 
-export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, roomId, waveforms, onImportWaveform, onImportMarketWaveform, onRemoveWaveform, selfState, selfLimitA, selfLimitB }: ControlPanelProps) {
+export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, roomId, waveforms, onImportWaveform, onImportMarketWaveform, onRemoveWaveform, selfState, selfLimitA, selfLimitB, selfRoleName, roleNameFor }: ControlPanelProps) {
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -140,13 +147,14 @@ export function ControlPanel({ members, peers, onSendCommand, onSendWaveform, ro
         </p>
         <div className="space-y-2">
           {/* Self */}
-          <SelfCard member={selfState} onClick={() => setSelectedMember('self')} />
+          <SelfCard member={selfState} roleName={selfRoleName} onClick={() => setSelectedMember('self')} />
           {/* Peers */}
           {peers.map(peerId => (
             <MemberCard
               key={peerId}
               peerId={peerId}
               member={members.get(peerId)}
+              roleName={roleNameFor?.(peerId)}
               onClick={() => setSelectedMember(peerId)}
             />
           ))}

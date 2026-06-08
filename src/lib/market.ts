@@ -8,7 +8,7 @@ export const MARKET_BASE_URL: string =
   (import.meta.env.VITE_MARKET_BASE_URL as string | undefined)?.replace(/\/$/, '') ??
   FALLBACK_BASE_URL;
 
-export type MarketItemType = 'waveform' | 'scenario';
+export type MarketItemType = 'waveform' | 'scenario' | 'multi-scene';
 
 export interface MarketWaveformContent {
   // 波形帧：[编码频率 10-240, 强度 0-100][]，与 @dg-kit/core 的 WaveFrame 完全一致。
@@ -20,6 +20,14 @@ export interface MarketScenarioContent {
   prompt: string;
 }
 
+/** 多人场景：世界观 + 角色 + 玩法元数据。 */
+export interface MarketMultiSceneContent {
+  setting: string;
+  roles: { name: string; description?: string; aiPlayable?: boolean }[];
+  playerCount?: { min: number; max: number };
+  aiMode?: 'none' | 'solo' | 'multi';
+}
+
 export interface MarketItem {
   id: string;
   type: MarketItemType;
@@ -28,7 +36,7 @@ export interface MarketItem {
   author?: string;
   icon?: string;
   tags: string[];
-  content: MarketWaveformContent | MarketScenarioContent;
+  content: MarketWaveformContent | MarketScenarioContent | MarketMultiSceneContent;
   downloads: number;
   createdAt: number;
 }
@@ -53,8 +61,8 @@ export async function fetchMarketItems(params: FetchMarketParams): Promise<Marke
   });
   if (!res.ok) throw new Error(`市场请求失败 (${res.status})`);
   const data = (await res.json()) as { items?: MarketItem[] };
-  // 只返回波形条目，忽略其它类型（例如场景），避免误导入。
-  return (data.items ?? []).filter((item) => item.type === 'waveform');
+  // 按请求的 type 过滤（waveform / multi-scene…）。
+  return (data.items ?? []).filter((item) => item.type === params.type);
 }
 
 export async function markMarketDownloaded(id: string): Promise<void> {
