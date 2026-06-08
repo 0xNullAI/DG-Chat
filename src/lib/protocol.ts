@@ -120,6 +120,10 @@ export interface MemberState {
   // —— 场景扮演新增 ——
   /** 当前认领的场景角色 id（无则未认领角色）。 */
   roleId?: string;
+  /** 是否为 AI 托管的伪成员（peerId 形如 "ai:&lt;roleId&gt;"）。 */
+  isAi?: boolean;
+  /** 该成员是否允许房间内 AI 控制其设备（opt-in）。 */
+  allowAi?: boolean;
 }
 
 /** 场景角色定义（= 成员可认领的头衔）。 */
@@ -127,9 +131,9 @@ export interface SceneRole {
   id: string;
   name: string;
   description?: string;
-  /** 该角色是否可由 AI 扮演（Market 上传标注；本次纯人不消费）。 */
+  /** 该角色是否可由 AI 扮演（Market 上传标注；房主据此显示「交给 AI」入口）。 */
   aiPlayable?: boolean;
-  /** 预留：AI 扮演该角色的人设 prompt。本次不用。 */
+  /** AI 扮演该角色时的人设 prompt（性格/口吻/动机，喂给 agent loop 的 system prompt）。 */
   aiPersona?: string;
 }
 
@@ -169,4 +173,6 @@ export interface StateSlow {
   intervalB: number;
   currentIndexA: number;
   currentIndexB: number;
+  /** 是否允许房间内 AI 角色控制本机设备（opt-in；默认关闭）。 */
+  allowAi?: boolean;
 }

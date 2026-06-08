@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { connectRoom, type RoomTransport, type TransportStatus } from '../lib/room-transport';
 import type {
   ChatMessage,
@@ -292,6 +292,7 @@ export function usePeerRoom(displayName: string) {
               intervalB: (data.iB as number) ?? cur.intervalB,
               currentIndexA: (data.ciA as number) ?? cur.currentIndexA,
               currentIndexB: (data.ciB as number) ?? cur.currentIndexB,
+              allowAi: (data.aa as boolean | undefined) ?? cur.allowAi,
             });
             return next;
           });
@@ -369,6 +370,36 @@ export function usePeerRoom(displayName: string) {
     send({ t: 'role', act: 'release', roleId });
   }, [send]);
 
+  /** 房主：把某 aiPlayable 角色交给 AI 托管 / 取消托管。 */
+  const assignAi = useCallback((roleId: string) => {
+    send({ t: 'role', act: 'assign-ai', roleId });
+  }, [send]);
+  const releaseAi = useCallback((roleId: string) => {
+    send({ t: 'role', act: 'release-ai', roleId });
+  }, [send]);
+
+  /** 房主代某 AI 托管角色发言（agent loop 调用）。服务端校验 host + 该角色确为 AI 托管。 */
+  const sendChatAs = useCallback((roleId: string, text: string, mentions?: ChatMention[]) => {
+    const role = scene?.roles.find(r => r.id === roleId);
+    send({
+      t: 'chat',
+      as: `ai:${roleId}`,
+      id: shortId(),
+      n: role?.name ?? 'AI',
+      x: text,
+      ts: Date.now(),
+      mentions: mentions?.map(x => ({ peerId: x.peerId, n: x.displayName })),
+    });
+  }, [send, scene]);
+
+  /** 房主代某 AI 托管角色发设备指令（agent 工具调用）。_from 由服务端置为 ai:<roleId>。 */
+  const sendCommandAs = useCallback(
+    (roleId: string, target: string, action: CmdAction, params?: Omit<DeviceCommand, 'action'>) => {
+      send({ t: 'cmd', as: `ai:${roleId}`, to: target, a: action, ...params });
+    },
+    [send],
+  );
+
   const sendCommand = useCallback((target: string, action: CmdAction, params?: Omit<DeviceCommand, 'action'>) => {
     send({ t: 'cmd', to: target, a: action, ...params });
   }, [send]);
@@ -419,6 +450,7 @@ export function usePeerRoom(displayName: string) {
       mA: s.playModeA, mB: s.playModeB,
       iA: s.intervalA, iB: s.intervalB,
       ciA: s.currentIndexA, ciB: s.currentIndexB,
+      aa: s.allowAi,
     });
   }, [send]);
 
@@ -457,6 +489,18 @@ export function usePeerRoom(displayName: string) {
     };
   }, []);
 
+  // 把 AI 托管角色合成为伪成员，使其出现在成员列表 + @ 候选中（peerId = "ai:<roleId>"）。
+  const membersWithAi = useMemo(() => {
+    if (!scene) return members;
+    const m = new Map(members);
+    for (const [roleId, holder] of Object.entries(roleAssignments)) {
+      if (!holder.startsWith('ai:')) continue;
+      const role = scene.roles.find(r => r.id === roleId);
+      if (role) m.set(holder, { ...emptyMember(holder), displayName: role.name, roleId, isAi: true });
+    }
+    return m;
+  }, [members, scene, roleAssignments]);
+
   return {
     selfId,
     status,
@@ -464,7 +508,7 @@ export function usePeerRoom(displayName: string) {
     error,
     roomId,
     peers,
-    members,
+    members: membersWithAi,
     messages,
     join,
     leave,
@@ -484,6 +528,10 @@ export function usePeerRoom(displayName: string) {
     setScene,
     claimRole,
     releaseRole,
+    assignAi,
+    releaseAi,
+    sendChatAs,
+    sendCommandAs,
   };
 }
 
