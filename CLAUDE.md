@@ -4,9 +4,18 @@ Guidance for Claude Code working in **DG-Chat** — the multi-user P2P room with
 
 ## Project Overview
 
-DG-Chat is a single-package Vite + React 19 SPA. Chat is fully peer-to-peer (PeerJS). Each user can grant remote control of their Coyote to other room members via WebRTC data channels. Hosted on Cloudflare Pages (chat.0xnullai.com).
+DG-Chat is a Vite + React 19 SPA plus a Cloudflare Worker. Rooms are relayed in real time over a **Cloudflare Durable Object WebSocket** (one `RoomDO` instance per room code), which replaced the earlier public-MQTT-broker transport — there is no WebRTC/PeerJS despite older docs. Each user can grant remote control of their Coyote to other room members; commands ride the same WebSocket. Front-end, WebSocket relay, lobby API and R2 media are all same-origin, served by one Worker via **Workers Static Assets** (chat.0xnullai.com).
 
-All BLE protocol + waveform code is reused from [`@dg-kit/*`](https://github.com/0xNullAI/DG-Kit) — DG-Chat owns just the React UI, the P2P layer, and the in-room command routing.
+All BLE protocol + waveform code is reused from [`@dg-kit/*`](https://github.com/0xNullAI/DG-Kit) — DG-Chat owns the React UI, the Cloudflare Worker realtime layer (`worker/`), and the in-room command routing.
+
+## Realtime architecture (worker/)
+
+- **`worker/index.ts`** — Worker entry. Routes `/ws/room/:code` → RoomDO, `/ws/lobby` + `/api/lobby/rooms` → LobbyDO, `/api/upload|media/...` → R2, everything else → `env.ASSETS` (SPA).
+- **`RoomDO`** (`worker/room-do.ts`) — per-room. WebSocket Hibernation relay; fan-out by message `t` field; injects trusted `_from`; `sys joined/left` presence; chat history in SQLite, replayed to newcomers as `history`; public rooms report to LobbyDO; after the last socket closes, `setAlarm(+10min)` then clears history + R2 media + lobby entry unless someone reconnects.
+- **`LobbyDO`** (`worker/lobby-do.ts`) — singleton `idFromName("v1")`. Public-room registry, `/ws/lobby` live push + `/api/lobby/rooms` snapshot, stale eviction.
+- **Wire protocol** (`worker/wire.ts`) — the old MQTT topics collapsed into a `t` field. Envelope `t` = type; chat timestamp is `ts` (NOT `t`). Front-end transport is `src/lib/room-transport.ts`; the public hook API of `use-peer-room.ts` is unchanged so `App.tsx` did not change shape.
+- **Media** — images compressed client-side, voice via MediaRecorder; uploaded to R2 (`room/{code}/{id}`) through `/api/upload`, referenced in chat messages, deleted with the room.
+- **Dev**: `npm run dev` (Vite) + `npm run cf:dev` (wrangler :8787); Vite proxies `/ws` and `/api` to the Worker. Vite's ws proxy is flaky for long-lived sockets (EPIPE → transport reconnect → app briefly drops back to RoomEntry); for WebSocket-heavy testing, build (`npm run build`) and hit the worker origin directly at `http://localhost:8787` (same-origin, no proxy). Production is same-origin so this is dev-only.
 
 ## Repo Layout
 
@@ -15,9 +24,12 @@ src/
   components/         UI components (ChatPanel, ControlPanel, MemberCard, …)
   hooks/              business hooks
     use-device.ts     wraps lib/bluetooth.ts, exposes React state
-    use-peer-room.ts  PeerJS room management + member sync
+    use-peer-room.ts  room management over RoomDO WebSocket + member sync (public API stable)
     use-waveforms.ts  waveform library + import flow
   lib/
+    room-transport.ts WebSocket client to RoomDO (auto-reconnect)
+    lobby-client.ts   lobby subscription client
+    media.ts          image compression + voice recording + R2 upload
     bluetooth.ts      DGLabDevice — wraps @dg-kit/protocol + transport-webbluetooth
     protocol.ts       P2P message protocol (chat, device commands, waveform transfer)
     commands.ts       in-room command routing
@@ -39,9 +51,11 @@ public/               static assets
 ```bash
 npm install
 npm run dev          # Vite dev server, http://localhost:5174/
+npm run cf:dev       # wrangler dev (Worker + DO/R2 local, :8787); pair with `npm run dev`
 npm run build        # tsc -b + Vite build
 npm run preview      # preview the production build
 npm run lint         # eslint
+npm run deploy       # build + wrangler deploy
 ```
 
 ## Test & Commit Workflow

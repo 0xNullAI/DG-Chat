@@ -1,6 +1,19 @@
 // P2P 消息协议类型定义。
 // 公共类型（UI 使用）保持长字段名；wire 格式（在 use-peer-room 内部）使用短键以减小 payload。
 
+/** 聊天消息附带的媒体（图片/语音）。实体存 R2，这里持已解析的可直接访问 URL。 */
+export interface ChatMedia {
+  kind: 'image' | 'audio';
+  /** `/api/media/:code/:id` 解析后的可访问地址。 */
+  url: string;
+  mime: string;
+  /** 语音时长（毫秒）。 */
+  durationMs?: number;
+  /** 图片像素宽高。 */
+  w?: number;
+  h?: number;
+}
+
 export interface ChatMessage {
   id: string;
   fromSelf: boolean;
@@ -8,6 +21,7 @@ export interface ChatMessage {
   senderName: string;
   text: string;
   timestamp: number;
+  media?: ChatMedia;
 }
 
 export type CmdAction =
