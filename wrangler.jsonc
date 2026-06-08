@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dg-chat",
+  "account_id": "9c36f42d1cb5ba53e644de21a014d028",
   "main": "worker/index.ts",
   "compatibility_date": "2025-01-01",
 
