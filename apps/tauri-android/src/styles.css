@@ -11,6 +11,15 @@
 @source "./";
 
 /*
+ * Pull in the web app's full stylesheet — crucially the one carrying
+ * `@import 'tailwindcss'`. The @source directives above MUST live in the same
+ * CSS bundle as that import, or Tailwind v4 scans nothing under ../../../src
+ * and tree-shakes every utility to zero (the app renders unstyled on Android).
+ * main.tsx therefore imports ONLY this file, never @chat/index.css separately.
+ */
+@import '../../../src/index.css';
+
+/*
  * Safe-area insets for Android edge-to-edge display.
  *
  * Tauri 2 Android draws behind the status bar / nav bar / cutout by default.
