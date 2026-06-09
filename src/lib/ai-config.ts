@@ -31,6 +31,27 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
     needsKey: false,
   },
   {
+    id: 'qwen',
+    label: 'Qwen（通义千问）',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    defaultModel: 'qwen3.5-plus',
+    needsKey: true,
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com',
+    defaultModel: 'deepseek-v4-pro',
+    needsKey: true,
+  },
+  {
+    id: 'doubao',
+    label: '豆包（火山方舟）',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    defaultModel: 'doubao-seed-2-0-mini-250415',
+    needsKey: true,
+  },
+  {
     id: 'openai',
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
@@ -39,7 +60,7 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   },
   {
     id: 'custom',
-    label: '自定义 (OpenAI 兼容)',
+    label: '自定义（OpenAI 兼容）',
     baseUrl: '',
     defaultModel: '',
     needsKey: true,
