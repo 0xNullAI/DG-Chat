@@ -8,9 +8,20 @@ function getAudioContext(): AudioContext {
   return audioCtx;
 }
 
+/** Opossum + LED control surface, present only once the local session exists. */
+export interface DeviceSessionContext {
+  opossumConnected: boolean;
+  setOpossumIntensity: (channel: 'A' | 'B', value: number) => void;
+  opossumBurst: (channel: 'A' | 'B', strength: number, durationMs?: number) => void;
+  opossumStop: (channel?: 'A' | 'B') => void;
+  setLedColor: (target: 'sensor' | 'opossum', color: number) => void;
+}
+
 export interface CommandContext {
   device: DGLabDevice | null;
   getWaveform?: (id: string) => WaveformDefinition | undefined;
+  /** Opossum/LED control surface. Present whenever a local device session exists (even if only a sensor is connected). */
+  session?: DeviceSessionContext;
 }
 
 export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string {
@@ -73,7 +84,29 @@ export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string
       if (!dev) return '未连接蓝牙设备';
       return '脉冲已发送';
 
+    // —— Opossum（负鼠振动控制器） ——
+    case 'vibrate_stop':
+      if (!ctx?.session?.opossumConnected) return '未连接 Opossum 设备';
+      ctx.session.opossumStop(cmd.c);
+      return cmd.c ? `${cmd.c} 通道振动已停止` : '振动已停止';
+
+    case 'vibrate_burst':
+      if (!ctx?.session?.opossumConnected) return '未连接 Opossum 设备';
+      if (!cmd.c || cmd.v == null) return '参数缺失';
+      ctx.session.opossumBurst(cmd.c, cmd.v, cmd.ms ?? 500);
+      return `${cmd.c} 通道脉冲已发送`;
+
+    // —— LED 颜色（paw-prints / civet-edging / opossum 共用） ——
+    case 'set_led': {
+      if (!ctx?.session) return '当前没有可设置灯光的设备';
+      if (cmd.color == null) return '缺少颜色参数';
+      const target = cmd.kind === 'opossum' ? 'opossum' : 'sensor';
+      ctx.session.setLedColor(target, cmd.color);
+      return '灯光已更新';
+    }
+
     case 'adjust_strength':
+    case 'vibrate_adjust':
     case 'set_queue':
     case 'set_play_mode':
     case 'set_interval':

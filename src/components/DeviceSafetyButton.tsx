@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bluetooth, BluetoothOff, RotateCcw } from 'lucide-react';
+import { Bluetooth, BluetoothOff, RotateCcw, Plus, Radar, Gauge } from 'lucide-react';
 import { Popover } from './Popover';
+import type { SensorSummary, OpossumSummary } from '../lib/bluetooth';
+import type { DeviceKind } from '../lib/protocol';
 
 interface DeviceSafetyButtonProps {
   connected: boolean;
@@ -16,7 +18,20 @@ interface DeviceSafetyButtonProps {
   firePolicy: 'sum' | 'max' | 'avg';
   onSetFirePolicy: (p: 'sum' | 'max' | 'avg') => void;
   onRestoreDefaults: () => void;
+  /** 已接入的传感器（爪印/灵猫边缘，二选一），未接入为 null。 */
+  sensor: SensorSummary | null;
+  /** 已接入的 Opossum 负鼠振动控制器，未接入为 null。 */
+  opossum: OpossumSummary | null;
+  /** 打开浏览器蓝牙选择器，添加第二/第三个设备（传感器或 Opossum）。 */
+  onAddDevice: () => Promise<{ kind: DeviceKind; name: string }>;
+  onDisconnectSensor: () => void;
+  onDisconnectOpossum: () => void;
 }
+
+const SENSOR_KIND_LABEL: Record<string, string> = {
+  'paw-prints': '爪印传感器',
+  'civet-edging': '灵猫边缘传感器',
+};
 
 export function DeviceSafetyButton({
   connected, deviceName, battery,
@@ -25,8 +40,11 @@ export function DeviceSafetyButton({
   backgroundBehavior, onSetBackgroundBehavior,
   firePolicy, onSetFirePolicy,
   onRestoreDefaults,
+  sensor, opossum, onAddDevice, onDisconnectSensor, onDisconnectOpossum,
 }: DeviceSafetyButtonProps) {
   const [open, setOpen] = useState(false);
+  const [addingDevice, setAddingDevice] = useState(false);
+  const [addDeviceError, setAddDeviceError] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [anchorTop, setAnchorTop] = useState(0);
 
@@ -39,6 +57,20 @@ export function DeviceSafetyButton({
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, []);
+
+  async function handleAddDevice() {
+    setAddDeviceError(null);
+    setAddingDevice(true);
+    try {
+      await onAddDevice();
+    } catch (err) {
+      setAddDeviceError(err instanceof Error ? err.message : '添加设备失败');
+    } finally {
+      setAddingDevice(false);
+    }
+  }
+
+  const extraDeviceCount = (sensor ? 1 : 0) + (opossum ? 1 : 0);
 
   return (
     <>
@@ -61,6 +93,11 @@ export function DeviceSafetyButton({
         ) : (
           <BluetoothOff className="h-4 w-4" />
         )}
+        {extraDeviceCount > 0 && (
+          <span className="rounded-full bg-[var(--accent-soft)] px-1 text-[9px] font-medium text-[var(--accent)]">
+            +{extraDeviceCount}
+          </span>
+        )}
       </button>
 
       <Popover open={open} onOpenChange={setOpen} title="设备与个人安全设置" anchorTop={anchorTop}>
@@ -68,7 +105,7 @@ export function DeviceSafetyButton({
           {/* 设备连接 */}
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-[var(--text-soft)]">蓝牙设备</p>
+              <p className="text-xs font-medium text-[var(--text-soft)]">Coyote 主机</p>
               <p className="truncate text-[10px] text-[var(--text-faint)]">
                 {connected ? `${deviceName ?? '已连接'}${battery != null ? ` · 电量 ${battery}%` : ''}` : '未连接'}
               </p>
@@ -88,6 +125,65 @@ export function DeviceSafetyButton({
             </button>
           </div>
 
+          {/* 已接入的传感器 / Opossum + 添加设备 */}
+          <div className="space-y-2 border-t border-[var(--surface-border)] pt-3">
+            <p className="text-xs font-medium text-[var(--text-soft)]">其他设备</p>
+
+            {sensor && (
+              <div className="flex items-center justify-between gap-2 rounded-[var(--radius-sm)] bg-[var(--bg-soft)] px-2.5 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Radar size={14} className="shrink-0 text-[var(--accent)]" />
+                  <div className="min-w-0">
+                    <p className="truncate text-xs text-[var(--text)]">{SENSOR_KIND_LABEL[sensor.kind] ?? sensor.kind}</p>
+                    <p className="text-[10px] text-[var(--text-faint)]">
+                      {sensor.connected ? `已连接${sensor.battery != null ? ` · 电量 ${sensor.battery}%` : ''}` : '已断开'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={onDisconnectSensor}
+                  className="shrink-0 rounded-[var(--radius-sm)] bg-[var(--danger-soft)] px-2 py-1 text-[10px] font-medium text-[var(--danger)]"
+                >
+                  断开
+                </button>
+              </div>
+            )}
+
+            {opossum && (
+              <div className="flex items-center justify-between gap-2 rounded-[var(--radius-sm)] bg-[var(--bg-soft)] px-2.5 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Gauge size={14} className="shrink-0 text-[var(--accent)]" />
+                  <div className="min-w-0">
+                    <p className="truncate text-xs text-[var(--text)]">Opossum 振动控制器</p>
+                    <p className="text-[10px] text-[var(--text-faint)]">
+                      {opossum.connected ? `已连接${opossum.battery != null ? ` · 电量 ${opossum.battery}%` : ''}` : '已断开'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={onDisconnectOpossum}
+                  className="shrink-0 rounded-[var(--radius-sm)] bg-[var(--danger-soft)] px-2 py-1 text-[10px] font-medium text-[var(--danger)]"
+                >
+                  断开
+                </button>
+              </div>
+            )}
+
+            <button
+              onClick={handleAddDevice}
+              disabled={addingDevice}
+              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-dashed border-[var(--surface-border)] text-xs text-[var(--text-soft)] hover:bg-[var(--bg-soft)] disabled:opacity-50"
+            >
+              <Plus size={13} /> {addingDevice ? '正在打开选择器…' : '添加设备（传感器 / Opossum）'}
+            </button>
+            {addDeviceError && (
+              <p className="text-[10px] text-[var(--danger)]">{addDeviceError}</p>
+            )}
+            <p className="text-[10px] text-[var(--text-faint)]">
+              爪印传感器、灵猫边缘传感器、Opossum 振动控制器各接入一个（v1 版本一次只支持每种设备一台）。
+            </p>
+          </div>
+
           {/* 通道上限 */}
           <div className="space-y-3 border-t border-[var(--surface-border)] pt-3">
             <div>
@@ -104,7 +200,7 @@ export function DeviceSafetyButton({
               </div>
               <input type="range" min={0} max={200} value={limitB} onChange={e => onSetLimit('B', Number(e.target.value))} className="w-full" />
             </div>
-            <p className="text-[10px] text-[var(--text-faint)]">硬件级别限制，远程控制无法超过此上限</p>
+            <p className="text-[10px] text-[var(--text-faint)]">硬件级别限制，远程控制无法超过此上限（Opossum 振动强度共用同一套上限）</p>
           </div>
 
           {/* 后台行为 */}
