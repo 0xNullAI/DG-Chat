@@ -595,18 +595,26 @@ export class DeviceSession {
       .catch(() => undefined);
   }
 
-  /** LED color byte (0-255) for the sensor or Opossum slot, whichever is connected. */
+  /**
+   * LED color for the sensor or Opossum slot, whichever is connected.
+   * `color` is the device family's discrete 0-7 indicator enum (0=熄灭,
+   * 1=黄, 2=红, 3=紫, 4=蓝, 5=青, 6=绿, 7=白) — not an RGB/continuous byte.
+   * @dg-kit/protocol clamps to this range too; clamping here as well keeps
+   * this call site self-documenting and avoids depending on that as the
+   * only guard.
+   */
   setLedColor(target: 'sensor' | 'opossum', color: number): void {
-    const byte = clamp(Math.round(color), 0, 255);
+    const byte = clamp(Math.round(color), 0, 7);
     if (target === 'sensor') {
       if (this.sensorAdapter instanceof PawPrintsSensorAdapter) {
         void this.sensorAdapter.setLedSolid(byte).catch(() => undefined);
       } else if (this.sensorAdapter instanceof CivetPressureSensorAdapter) {
-        // civet-edging has no dedicated LED-only command; color rides along
-        // with the pressure-reporting toggle packet, so re-issuing "start"
-        // with the new color updates it in place without interrupting the
-        // pressure stream.
-        void this.sensorAdapter.startPressureReporting(byte).catch(() => undefined);
+        // civet-edging's setIndicatorColor() re-sends the 0x50 packet with
+        // the current streaming state preserved, unlike
+        // startPressureReporting()/stopPressureReporting() which would
+        // force streaming on/off as a side effect of a purely cosmetic
+        // color change.
+        void this.sensorAdapter.setIndicatorColor(byte).catch(() => undefined);
       }
     } else if (this.opossumAdapter) {
       void this.opossumAdapter.setLed(byte, true).catch(() => undefined);

@@ -98,7 +98,7 @@ export interface DeviceCommand {
   mode?: PlayMode;
   /** interval seconds（set_interval 用） */
   iv?: number;
-  /** LED 颜色字节 0-255（set_led 用；设备协议里颜色是单字节编码，不是 RGB）。 */
+  /** LED 颜色枚举 0-7（set_led 用；设备协议里是离散色号，不是 RGB/连续字节，见 LedColorPicker）。 */
   color?: number;
   /** 持续时间（毫秒），vibrate_burst 用；缺省 500ms。 */
   ms?: number;

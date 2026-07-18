@@ -1,27 +1,27 @@
 import { Lightbulb } from 'lucide-react';
 
 interface LedColorPickerProps {
-  /** 当前设备实际支持的是单字节颜色编码（0-255），不是 RGB —— 具体色相映射由固件决定，
-   *  这里给出一组视觉上分散的预设方便挑选，按钮上的色块只是助记，不代表设备真实发光颜色。 */
+  /** 设备实际支持的是离散 8 色枚举（0-7），不是 RGB/连续字节 —— 按钮色块就是设备真实发光颜色，
+   *  枚举取值参考社区蓝牙协议文档（爪印色表 + 灵猫 "01=黄色" 示例）。 */
   onPick: (colorByte: number) => void;
   disabled?: boolean;
   className?: string;
 }
 
 const PRESETS: Array<{ label: string; byte: number; swatch: string }> = [
-  { label: '红', byte: 0, swatch: '#ef4444' },
-  { label: '橙', byte: 32, swatch: '#f97316' },
-  { label: '黄', byte: 64, swatch: '#eab308' },
-  { label: '绿', byte: 96, swatch: '#22c55e' },
-  { label: '青', byte: 128, swatch: '#06b6d4' },
-  { label: '蓝', byte: 160, swatch: '#3b82f6' },
-  { label: '紫', byte: 192, swatch: '#a855f7' },
-  { label: '白', byte: 255, swatch: '#e5e7eb' },
+  { label: '熄灭', byte: 0, swatch: '#4b5563' },
+  { label: '黄', byte: 1, swatch: '#eab308' },
+  { label: '红', byte: 2, swatch: '#ef4444' },
+  { label: '紫', byte: 3, swatch: '#a855f7' },
+  { label: '蓝', byte: 4, swatch: '#3b82f6' },
+  { label: '青', byte: 5, swatch: '#06b6d4' },
+  { label: '绿', byte: 6, swatch: '#22c55e' },
+  { label: '白', byte: 7, swatch: '#e5e7eb' },
 ];
 
 /**
  * 小型可复用 LED 颜色选择器，供 paw-prints / civet-edging / opossum 三种设备共用。
- * 点击直接通过 onPick 把颜色字节（0-255）交给调用方 —— 调用方负责用 'set_led'
+ * 点击直接通过 onPick 把颜色枚举值（0-7）交给调用方 —— 调用方负责用 'set_led'
  * room action 把它发出去（自己/远端设备都走同一条路径，见 MemberControl）。
  */
 export function LedColorPicker({ onPick, disabled, className }: LedColorPickerProps) {

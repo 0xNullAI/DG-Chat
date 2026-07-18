@@ -189,7 +189,7 @@ export function useDevice(options: UseDeviceOptions = {}) {
     sessionRef.current?.opossumStop(channel);
   }, []);
 
-  /** 设置传感器或 Opossum 的 LED 颜色（0-255）。 */
+  /** 设置传感器或 Opossum 的 LED 颜色（0-7 离散枚举，见 LedColorPicker）。 */
   const setLedColor = useCallback((target: 'sensor' | 'opossum', color: number) => {
     sessionRef.current?.setLedColor(target, color);
   }, []);
