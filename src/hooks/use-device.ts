@@ -123,6 +123,11 @@ export function useDevice(options: UseDeviceOptions = {}) {
     setOpossum(null);
   }, []);
 
+  /** 仅断开 Coyote 主机（保留传感器 / Opossum）。 */
+  const disconnectCoyote = useCallback(() => {
+    sessionRef.current?.disconnectCoyote();
+  }, []);
+
   /** 仅断开传感器（保留 Coyote / Opossum）。 */
   const disconnectSensor = useCallback(() => {
     sessionRef.current?.disconnectSensor();
@@ -225,6 +230,7 @@ export function useDevice(options: UseDeviceOptions = {}) {
     waveIdB,
     connect,
     disconnect,
+    disconnectCoyote,
     setStrength,
     setWave,
     stopWave,

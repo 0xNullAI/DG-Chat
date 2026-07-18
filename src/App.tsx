@@ -222,6 +222,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
       getWaveform: waveformsRef.current.getWaveform,
       session: {
         opossumConnected: !!deviceRef.current.opossum?.connected,
+        sensorConnected: !!deviceRef.current.sensor?.connected,
         setOpossumIntensity: deviceRef.current.setOpossumIntensity,
         opossumBurst: deviceRef.current.opossumBurst,
         opossumStop: deviceRef.current.opossumStop,
@@ -323,7 +324,11 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
         allowAi,
         opossumConnected: device.opossum?.connected ?? false,
         opossumBattery: device.opossum?.battery ?? null,
-        sensorKind: device.sensor?.kind,
+        // Must resolve to explicit null (not undefined) when disconnected —
+        // JSON.stringify drops undefined keys entirely, and the receiver
+        // treats a missing key as "no update" (falls back to its cached
+        // value) rather than "cleared". See use-peer-room.ts's receive side.
+        sensorKind: device.sensor?.kind ?? null,
         sensorConnected: device.sensor?.connected ?? false,
         sensorBattery: device.sensor?.battery ?? null,
       });
@@ -468,7 +473,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             deviceName={device.deviceInfo?.name ?? null}
             battery={device.battery}
             onConnect={device.connect}
-            onDisconnect={device.disconnect}
+            onDisconnect={device.disconnectCoyote}
             limitA={device.limitA}
             limitB={device.limitB}
             onSetLimit={device.setLimit}
@@ -483,8 +488,10 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             onDisconnectSensor={device.disconnectSensor}
             onDisconnectOpossum={device.disconnectOpossum}
           />
-          {/* 紧急停止 */}
-          {device.connected && (
+          {/* 紧急停止：Coyote 或 Opossum 任一已连接就必须可见——两者都是可能
+              正在输出的设备，只看 Coyote 会让"只连了 Opossum"的用户找不到
+              一键停止按钮。 */}
+          {(device.connected || device.opossum?.connected) && (
             <button
               onClick={device.stopAll}
               className="flex h-9 items-center gap-1 rounded-[10px] bg-[var(--danger-soft)] px-2.5 text-xs font-medium text-[var(--danger)] transition-opacity hover:opacity-80"

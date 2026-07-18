@@ -161,7 +161,7 @@ export interface MemberState {
   opossumIntensityB?: number;
   opossumBattery?: number | null;
   // —— 传感器（爪印 / 灵猫边缘，二选一）新增 ——
-  sensorKind?: SensorKind;
+  sensorKind?: SensorKind | null;
   sensorConnected?: boolean;
   sensorBattery?: number | null;
   /**
@@ -234,7 +234,7 @@ export interface StateSlow {
   opossumConnected?: boolean;
   opossumBattery?: number | null;
   // —— 传感器连接状态 / 种类 / 电量（低频） ——
-  sensorKind?: SensorKind;
+  sensorKind?: SensorKind | null;
   sensorConnected?: boolean;
   sensorBattery?: number | null;
 }

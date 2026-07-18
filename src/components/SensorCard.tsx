@@ -77,7 +77,7 @@ export function SensorCard({ peerId, member, onSendCommand }: SensorCardProps) {
       {member.sensorConnected && (
         <LedColorPicker
           className="mt-3 border-t border-[var(--surface-border)] pt-2"
-          onPick={color => onSendCommand(peerId, 'set_led', { kind: member.sensorKind, color })}
+          onPick={color => onSendCommand(peerId, 'set_led', { kind: member.sensorKind ?? undefined, color })}
         />
       )}
     </div>

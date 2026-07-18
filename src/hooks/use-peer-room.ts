@@ -274,9 +274,17 @@ export function usePeerRoom(displayName: string) {
               firingB: (data.fB as boolean) ?? cur.firingB,
               opossumIntensityA: (data.oa as number | undefined) ?? cur.opossumIntensityA,
               opossumIntensityB: (data.ob as number | undefined) ?? cur.opossumIntensityB,
-              sensorLastEvent: (data.se as string | null | undefined) ?? cur.sensorLastEvent ?? null,
-              sensorLastValue: (data.sv as number | null | undefined) ?? cur.sensorLastValue ?? null,
-              sensorLastEventAt: (data.sea as number | null | undefined) ?? cur.sensorLastEventAt ?? null,
+              // No `?? cur.X` fallback here — App.tsx always includes these
+              // keys in every 'sf' broadcast (unlike opossumIntensityA/B,
+              // which really can be legitimately absent from an
+              // opossum-less broadcast payload shape upstream). Falling
+              // back to the cached value on an explicit `null` (sent on
+              // sensor disconnect) would mask the clear and leave stale
+              // sensor readings displayed forever — see bluetooth.ts's
+              // disconnectSensor().
+              sensorLastEvent: (data.se as string | null | undefined) ?? null,
+              sensorLastValue: (data.sv as number | null | undefined) ?? null,
+              sensorLastEventAt: (data.sea as number | null | undefined) ?? null,
             });
             return next;
           });
@@ -302,10 +310,16 @@ export function usePeerRoom(displayName: string) {
               currentIndexB: (data.ciB as number) ?? cur.currentIndexB,
               allowAi: (data.aa as boolean | undefined) ?? cur.allowAi,
               opossumConnected: (data.oc as boolean | undefined) ?? cur.opossumConnected,
-              opossumBattery: (data.obt as number | null | undefined) ?? cur.opossumBattery ?? null,
-              sensorKind: (data.sk as MemberState['sensorKind']) ?? cur.sensorKind,
+              // No `?? cur.X` fallback — App.tsx's 'ss' broadcast always
+              // includes these keys (see the matching comment on the 'sf'
+              // case above). sensorKind in particular gates SensorCard's
+              // visibility (`!member.sensorKind` hides it), so preserving a
+              // stale kind after disconnect left the card permanently stuck
+              // visible for the rest of the room session.
+              opossumBattery: (data.obt as number | null | undefined) ?? null,
+              sensorKind: (data.sk as MemberState['sensorKind'] | null | undefined) ?? null,
               sensorConnected: (data.sc as boolean | undefined) ?? cur.sensorConnected,
-              sensorBattery: (data.sbt as number | null | undefined) ?? cur.sensorBattery ?? null,
+              sensorBattery: (data.sbt as number | null | undefined) ?? null,
             });
             return next;
           });

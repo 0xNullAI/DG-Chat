@@ -11,6 +11,7 @@ function getAudioContext(): AudioContext {
 /** Opossum + LED control surface, present only once the local session exists. */
 export interface DeviceSessionContext {
   opossumConnected: boolean;
+  sensorConnected: boolean;
   setOpossumIntensity: (channel: 'A' | 'B', value: number) => void;
   opossumBurst: (channel: 'A' | 'B', strength: number, durationMs?: number) => void;
   opossumStop: (channel?: 'A' | 'B') => void;
@@ -101,6 +102,11 @@ export function executeCommand(cmd: DeviceCommand, ctx?: CommandContext): string
       if (!ctx?.session) return '当前没有可设置灯光的设备';
       if (cmd.color == null) return '缺少颜色参数';
       const target = cmd.kind === 'opossum' ? 'opossum' : 'sensor';
+      const targetConnected =
+        target === 'opossum' ? ctx.session.opossumConnected : ctx.session.sensorConnected;
+      if (!targetConnected) {
+        return target === 'opossum' ? '未连接 Opossum 设备' : '未连接传感器设备';
+      }
       ctx.session.setLedColor(target, cmd.color);
       return '灯光已更新';
     }

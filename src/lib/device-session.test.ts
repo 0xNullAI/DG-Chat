@@ -251,4 +251,75 @@ describe('DeviceSession — multi-device routing', () => {
     expect(onChange).toHaveBeenCalled();
     expect(session.getOpossumSummary()).toBeNull();
   });
+
+  it('defaults the shared 50 safety limit even when only an Opossum is connected (Coyote never connects)', async () => {
+    // Regression: limitA/limitB used to be read straight from the Coyote
+    // protocol's raw internal state, which @dg-kit/core defaults to 200
+    // until DGLabDevice.connect() actually runs setLimits(50, 50) — so an
+    // Opossum-only session (Coyote never connected) silently got the raw
+    // 200 protocol max instead of the documented 50 default, for both local
+    // control and remote vibrate_adjust/vibrate_burst commands.
+    const device = new MockDevice(`${OPOSSUM_DEVICE_NAME_PREFIX}000`, 'opossum-1');
+    (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
+
+    const session = new DeviceSession();
+    await session.addDevice();
+
+    const state = session.coyote.getState();
+    expect(state.connected).toBe(false);
+    expect(state.limitA).toBe(50);
+    expect(state.limitB).toBe(50);
+  });
+
+  it('opossumBurst does not let its delayed restore clobber an intervening stop', async () => {
+    vi.useFakeTimers();
+    try {
+      const device = new MockDevice(`${OPOSSUM_DEVICE_NAME_PREFIX}000`, 'opossum-1');
+      (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
+
+      const session = new DeviceSession();
+      await session.addDevice();
+
+      session.opossumBurst('A', 160, 500, 200);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getOpossumSummary()?.intensityA).toBe(160);
+
+      // Explicit stop lands well inside the burst's 500ms restore window.
+      session.opossumStop('A');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getOpossumSummary()?.intensityA).toBe(0);
+
+      // The stale burst-restore timer fires next — it must not undo the stop.
+      await vi.advanceTimersByTimeAsync(500);
+      expect(session.getOpossumSummary()?.intensityA).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the previous sensor connected if swapping to a new one fails mid-handshake', async () => {
+    // Regression: attachSensor()/attachOpossum() used to disconnect the
+    // existing device BEFORE attempting the new one, so a flaky/wrong pick
+    // during a swap lost the previously-good connection even though the
+    // swap itself failed.
+    const good = new MockDevice(`${PAW_PRINTS_DEVICE_NAME_PREFIX}000`, 'paw-1');
+    const broken = new MockDevice(`${CIVET_DEVICE_NAME_PREFIX}000`, 'civet-broken');
+    broken.gatt.connect = async () => ({
+      connected: true,
+      async getPrimaryService() {
+        throw new Error('service discovery failed');
+      },
+    });
+    (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([good, broken]);
+
+    const session = new DeviceSession();
+    await session.addDevice();
+    expect(session.getSensorSummary()?.kind).toBe('paw-prints');
+
+    await expect(session.addDevice()).rejects.toThrow();
+
+    expect(session.getSensorSummary()?.kind).toBe('paw-prints');
+    expect(session.getSensorSummary()?.connected).toBe(true);
+    expect(good.gatt.disconnect).not.toHaveBeenCalled();
+  });
 });

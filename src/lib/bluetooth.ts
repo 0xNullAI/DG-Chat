@@ -69,6 +69,17 @@ export class DGLabDevice {
   private channelA: ChannelLocalState = { waveformId: null, frames: null, loop: true };
   private channelB: ChannelLocalState = { waveformId: null, frames: null, loop: true };
 
+  // Tracked independently of the live protocol's own state so the 50 default
+  // safety cap holds from construction — not just after a Coyote actually
+  // connects. `@dg-kit/core`'s createEmptyDeviceState() defaults limitA/limitB
+  // to 200 (the raw protocol range), which used to leak straight through
+  // getState() into the UI/Opossum-clamping code whenever this DGLabDevice's
+  // Coyote was never connected (an Opossum-only session, say) — silently
+  // bypassing the documented 50 cap for anyone who only pairs the new device
+  // kinds. See DeviceSession's shared-limit doc comment.
+  private limitA = DEFAULT_LIMIT;
+  private limitB = DEFAULT_LIMIT;
+
   /**
    * @param clientFactory optional factory invoked with the protocol adapter
    *   to create the transport-specific `DeviceClient`. Defaults to
@@ -93,6 +104,8 @@ export class DGLabDevice {
 
     // DG-Chat ships with a per-channel safety cap of 50 (0~200 protocol range).
     await this.protocol.setLimits(DEFAULT_LIMIT, DEFAULT_LIMIT);
+    this.limitA = DEFAULT_LIMIT;
+    this.limitB = DEFAULT_LIMIT;
 
     return {
       version: this.version,
@@ -172,11 +185,10 @@ export class DGLabDevice {
 
   /** Update one channel's strength soft-limit (the other channel is preserved). */
   setLimit(channel: 'A' | 'B', value: number): void {
-    const state = this.protocol.getState();
     const next = clamp(Math.round(value), 0, 200);
-    const limitA = channel === 'A' ? next : state.limitA;
-    const limitB = channel === 'B' ? next : state.limitB;
-    void this.protocol.setLimits(limitA, limitB).catch(() => undefined);
+    this.limitA = channel === 'A' ? next : this.limitA;
+    this.limitB = channel === 'B' ? next : this.limitB;
+    void this.protocol.setLimits(this.limitA, this.limitB).catch(() => undefined);
   }
 
   getState(): {
@@ -207,8 +219,10 @@ export class DGLabDevice {
       // strength as both the user-set and device-actual values.
       actualStrA: s.strengthA,
       actualStrB: s.strengthB,
-      limitA: s.limitA,
-      limitB: s.limitB,
+      // Read from our own tracked fields, not the live protocol's raw
+      // state — see the class-field comment on limitA/limitB above.
+      limitA: this.limitA,
+      limitB: this.limitB,
     };
   }
 
@@ -341,6 +355,18 @@ export class DeviceSession {
   }
 
   /**
+   * Disconnect only the Coyote host — sensor and Opossum, if connected,
+   * stay up. Distinct from `disconnectAll()`: the per-device rows in
+   * `DeviceSafetyButton` now let a user manage each connection
+   * independently, so the Coyote row's own "断开" must not silently also
+   * drop the other two (that surprise was the point of the fix — see the
+   * PR review that caught it).
+   */
+  disconnectCoyote(): void {
+    this.coyote.disconnect();
+  }
+
+  /**
    * "Add device" — opens the browser Bluetooth chooser scoped to every
    * known 47L12x-family device kind, detects which kind was picked via
    * `detectDeviceKind()`, and routes it to the right adapter slot.
@@ -402,12 +428,14 @@ export class DeviceSession {
     device: BluetoothDeviceLike,
     server: BluetoothRemoteGATTServerLike,
   ): Promise<void> {
-    // v1: one sensor at a time — tear down whatever was there before.
-    this.disconnectSensor();
-
     const adapter: PawPrintsSensorAdapter | CivetPressureSensorAdapter =
       kind === 'paw-prints' ? new PawPrintsSensorAdapter() : new CivetPressureSensorAdapter();
+    // Connect the new sensor BEFORE tearing down whatever was there before
+    // (v1: one sensor at a time) — if onConnected() throws (a flaky/wrong
+    // device picked mid-swap), the previous, working sensor must still be
+    // intact rather than already disconnected with nothing to fall back to.
     await adapter.onConnected({ device, server });
+    this.disconnectSensor();
 
     this.sensorKind = kind;
     this.sensorAdapter = adapter;
@@ -471,10 +499,11 @@ export class DeviceSession {
   }
 
   private async attachOpossum(device: BluetoothDeviceLike, server: BluetoothRemoteGATTServerLike): Promise<void> {
-    this.disconnectOpossum();
-
     const adapter = new OpossumVibrateAdapter();
+    // Same ordering fix as attachSensor(): connect first, tear down the old
+    // Opossum only once the new one has actually succeeded.
     await adapter.onConnected({ device, server });
+    this.disconnectOpossum();
 
     this.opossumAdapter = adapter;
     this.opossumDevice = device;
@@ -520,9 +549,15 @@ export class DeviceSession {
     this.emit();
   }
 
+  // Bumped by every intensity-changing call (setOpossumIntensity/opossumStop),
+  // per channel. opossumBurst's delayed restore checks this before applying
+  // — see its comment below.
+  private opossumIntensityGeneration: Record<'A' | 'B', number> = { A: 0, B: 0 };
+
   /** Absolute set, clamped to [0, limit] — mirrors `DGLabDevice.setStrength`. */
   setOpossumIntensity(channel: 'A' | 'B', value: number, limit: number): void {
     if (!this.opossumAdapter) return;
+    this.opossumIntensityGeneration[channel] += 1;
     const target = clamp(Math.round(value), 0, limit);
     void this.opossumAdapter
       .setIntensity(channel === 'A' ? target : 'unchanged', channel === 'B' ? target : 'unchanged')
@@ -534,7 +569,13 @@ export class DeviceSession {
     if (!this.opossumAdapter) return;
     const previous = channel === 'A' ? this.opossumState.intensityA : this.opossumState.intensityB;
     this.setOpossumIntensity(channel, strength, limit);
+    // setOpossumIntensity() above already bumped the generation for this
+    // burst's own "jump to strength" write — capture it *after* that call so
+    // the restore below only fires if nothing else touched this channel in
+    // the meantime (a stop, another burst, a manual adjustment).
+    const generation = this.opossumIntensityGeneration[channel];
     setTimeout(() => {
+      if (this.opossumIntensityGeneration[channel] !== generation) return;
       this.setOpossumIntensity(channel, Math.min(previous, limit), limit);
     }, Math.max(100, durationMs));
   }
@@ -543,9 +584,12 @@ export class DeviceSession {
   opossumStop(channel?: 'A' | 'B'): void {
     if (!this.opossumAdapter) return;
     if (!channel) {
+      this.opossumIntensityGeneration.A += 1;
+      this.opossumIntensityGeneration.B += 1;
       void this.opossumAdapter.emergencyStop();
       return;
     }
+    this.opossumIntensityGeneration[channel] += 1;
     void this.opossumAdapter
       .setIntensity(channel === 'A' ? 0 : 'unchanged', channel === 'B' ? 0 : 'unchanged')
       .catch(() => undefined);
