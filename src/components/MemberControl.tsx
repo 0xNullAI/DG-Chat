@@ -45,6 +45,8 @@ function RepeatButton({ onAction, className, children }: {
 }
 import { parseImportFile, type WaveformDefinition } from '../lib/waveforms';
 import { Popover } from './Popover';
+import { SensorCard } from './SensorCard';
+import { OpossumControl } from './OpossumControl';
 
 interface MemberControlProps {
   peerId: string;
@@ -562,6 +564,11 @@ export function MemberControl({
           })()}
         </div>
 
+        {/* ==================== 传感器遥测（只读，不联动，见 lib/commands.ts TODO） ==================== */}
+        {member && <SensorCard peerId={peerId} member={member} onSendCommand={onSendCommand} />}
+
+        {/* ==================== Opossum 振动控制器 ==================== */}
+        {member && <OpossumControl peerId={peerId} member={member} onSendCommand={onSendCommand} limitA={limitA} limitB={limitB} />}
       </div>
 
       <MarketImportDialog
