@@ -13,7 +13,7 @@
     "tauri:android:build": "tauri android build"
   },
   "dependencies": {
-    "@dg-kit/transport-tauri-blec": "^1.2.1",
+    "@dg-kit/transport-tauri-blec": "^1.4.0",
     "@mnlphlp/plugin-blec": "^0.8.0",
     "@tauri-apps/api": "^2.0.0",
     "react": "^19.2.5",

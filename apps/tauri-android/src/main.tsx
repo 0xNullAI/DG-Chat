@@ -1,7 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from '@chat/App';
-import '@chat/index.css';
+// styles.css @import's @chat/index.css (which carries `@import 'tailwindcss'`)
+// alongside the @source scan paths — importing index.css here too would split
+// it into a separate Tailwind root with no @source, breaking utility extraction.
 import './styles.css';
 import { TauriBlecDeviceClient } from '@dg-kit/transport-tauri-blec';
 import { showDevicePicker } from './components/show-device-picker';

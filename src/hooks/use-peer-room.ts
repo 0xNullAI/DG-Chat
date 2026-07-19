@@ -240,6 +240,7 @@ export function usePeerRoom(displayName: string) {
         case 'cmd':
           onCommandRef.current?.({
             action: data.a as CmdAction,
+            kind: data.kind as DeviceCommand['kind'],
             c: data.c as 'A' | 'B' | undefined,
             v: data.v as number | undefined,
             w: data.w as string | undefined,
@@ -247,6 +248,8 @@ export function usePeerRoom(displayName: string) {
             q: data.q as string[] | undefined,
             mode: data.mode as DeviceCommand['mode'],
             iv: data.iv as number | undefined,
+            color: data.color as number | undefined,
+            ms: data.ms as number | undefined,
           }, from);
           break;
         case 'wave':
@@ -269,6 +272,19 @@ export function usePeerRoom(displayName: string) {
               waveB: (data.wb as string | null) ?? null,
               firingA: (data.fA as boolean) ?? cur.firingA,
               firingB: (data.fB as boolean) ?? cur.firingB,
+              opossumIntensityA: (data.oa as number | undefined) ?? cur.opossumIntensityA,
+              opossumIntensityB: (data.ob as number | undefined) ?? cur.opossumIntensityB,
+              // No `?? cur.X` fallback here — App.tsx always includes these
+              // keys in every 'sf' broadcast (unlike opossumIntensityA/B,
+              // which really can be legitimately absent from an
+              // opossum-less broadcast payload shape upstream). Falling
+              // back to the cached value on an explicit `null` (sent on
+              // sensor disconnect) would mask the clear and leave stale
+              // sensor readings displayed forever — see bluetooth.ts's
+              // disconnectSensor().
+              sensorLastEvent: (data.se as string | null | undefined) ?? null,
+              sensorLastValue: (data.sv as number | null | undefined) ?? null,
+              sensorLastEventAt: (data.sea as number | null | undefined) ?? null,
             });
             return next;
           });
@@ -293,6 +309,17 @@ export function usePeerRoom(displayName: string) {
               currentIndexA: (data.ciA as number) ?? cur.currentIndexA,
               currentIndexB: (data.ciB as number) ?? cur.currentIndexB,
               allowAi: (data.aa as boolean | undefined) ?? cur.allowAi,
+              opossumConnected: (data.oc as boolean | undefined) ?? cur.opossumConnected,
+              // No `?? cur.X` fallback — App.tsx's 'ss' broadcast always
+              // includes these keys (see the matching comment on the 'sf'
+              // case above). sensorKind in particular gates SensorCard's
+              // visibility (`!member.sensorKind` hides it), so preserving a
+              // stale kind after disconnect left the card permanently stuck
+              // visible for the rest of the room session.
+              opossumBattery: (data.obt as number | null | undefined) ?? null,
+              sensorKind: (data.sk as MemberState['sensorKind'] | null | undefined) ?? null,
+              sensorConnected: (data.sc as boolean | undefined) ?? cur.sensorConnected,
+              sensorBattery: (data.sbt as number | null | undefined) ?? null,
             });
             return next;
           });
@@ -415,6 +442,8 @@ export function usePeerRoom(displayName: string) {
         t: 'sf',
         sa: state.strengthA, sb: state.strengthB, wa: state.waveA, wb: state.waveB,
         fA: state.firingA, fB: state.firingB,
+        oa: state.opossumIntensityA, ob: state.opossumIntensityB,
+        se: state.sensorLastEvent, sv: state.sensorLastValue, sea: state.sensorLastEventAt,
       });
     };
     const ref = fastThrottleRef.current;
@@ -451,6 +480,8 @@ export function usePeerRoom(displayName: string) {
       iA: s.intervalA, iB: s.intervalB,
       ciA: s.currentIndexA, ciB: s.currentIndexB,
       aa: s.allowAi,
+      oc: s.opossumConnected, obt: s.opossumBattery,
+      sk: s.sensorKind, sc: s.sensorConnected, sbt: s.sensorBattery,
     });
   }, [send]);
 
@@ -555,5 +586,14 @@ function emptyMember(peerId: string): MemberState {
     currentIndexB: 0,
     firingA: false,
     firingB: false,
+    opossumConnected: false,
+    opossumIntensityA: 0,
+    opossumIntensityB: 0,
+    opossumBattery: null,
+    sensorConnected: false,
+    sensorBattery: null,
+    sensorLastEvent: null,
+    sensorLastValue: null,
+    sensorLastEventAt: null,
   };
 }

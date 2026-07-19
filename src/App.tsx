@@ -207,10 +207,27 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
       }
       return;
     }
+    // Opossum 强度增量：同 adjust_strength 语义，但作用于 Opossum intensity，
+    // 复用同一套 limitA/limitB 安全上限（v1 简化：不做多控制者 fire 聚合）。
+    if (cmd.action === 'vibrate_adjust' && cmd.c && cmd.v != null) {
+      const dev = deviceRef.current;
+      const limit = cmd.c === 'A' ? dev.limitA : dev.limitB;
+      const current = cmd.c === 'A' ? (dev.opossum?.intensityA ?? 0) : (dev.opossum?.intensityB ?? 0);
+      dev.setOpossumIntensity(cmd.c, Math.max(0, Math.min(limit, current + cmd.v)));
+      return;
+    }
 
     const ctx: CommandContext = {
       device: deviceRef.current.connected ? (deviceRef.current as unknown as CommandContext['device']) : null,
       getWaveform: waveformsRef.current.getWaveform,
+      session: {
+        opossumConnected: !!deviceRef.current.opossum?.connected,
+        sensorConnected: !!deviceRef.current.sensor?.connected,
+        setOpossumIntensity: deviceRef.current.setOpossumIntensity,
+        opossumBurst: deviceRef.current.opossumBurst,
+        opossumStop: deviceRef.current.opossumStop,
+        setLedColor: deviceRef.current.setLedColor,
+      },
     };
     executeCommand(cmd, ctx);
   }, [callApplyFire]);
@@ -277,10 +294,17 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
       waveB: device.waveIdB,
       firingA,
       firingB,
+      opossumIntensityA: device.opossum?.intensityA,
+      opossumIntensityB: device.opossum?.intensityB,
+      sensorLastEvent: device.sensor?.lastEvent ?? null,
+      sensorLastValue: device.sensor?.lastValue ?? null,
+      sensorLastEventAt: device.sensor?.lastEventAt ?? null,
     });
   }, [peerRoom.connected, peerRoom.broadcastStateFast,
       device.strengthA, device.strengthB, device.waveIdA, device.waveIdB,
-      firingA, firingB]);
+      firingA, firingB,
+      device.opossum?.intensityA, device.opossum?.intensityB,
+      device.sensor?.lastEvent, device.sensor?.lastValue, device.sensor?.lastEventAt]);
 
   // 低频状态：5 秒心跳 + 名字/电量/连接/目录变化时即时同步
   useEffect(() => {
@@ -298,6 +322,15 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
         intervalA: intervalASec, intervalB: intervalBSec,
         currentIndexA, currentIndexB,
         allowAi,
+        opossumConnected: device.opossum?.connected ?? false,
+        opossumBattery: device.opossum?.battery ?? null,
+        // Must resolve to explicit null (not undefined) when disconnected —
+        // JSON.stringify drops undefined keys entirely, and the receiver
+        // treats a missing key as "no update" (falls back to its cached
+        // value) rather than "cleared". See use-peer-room.ts's receive side.
+        sensorKind: device.sensor?.kind ?? null,
+        sensorConnected: device.sensor?.connected ?? false,
+        sensorBattery: device.sensor?.battery ?? null,
       });
     };
     send();
@@ -307,7 +340,9 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
       displayName, device.connected, device.battery,
       waveforms.allWaveforms.length,
       queueA, queueB, playModeA, playModeB,
-      intervalASec, intervalBSec, currentIndexA, currentIndexB, allowAi]);
+      intervalASec, intervalBSec, currentIndexA, currentIndexB, allowAi,
+      device.opossum?.connected, device.opossum?.battery,
+      device.sensor?.kind, device.sensor?.connected, device.sensor?.battery]);
 
   // 持久化「允许 AI 控制」开关。
   useEffect(() => {
@@ -438,7 +473,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             deviceName={device.deviceInfo?.name ?? null}
             battery={device.battery}
             onConnect={device.connect}
-            onDisconnect={device.disconnect}
+            onDisconnect={device.disconnectCoyote}
             limitA={device.limitA}
             limitB={device.limitB}
             onSetLimit={device.setLimit}
@@ -447,9 +482,16 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             firePolicy={device.firePolicy}
             onSetFirePolicy={device.setFirePolicy}
             onRestoreDefaults={waveforms.restoreDefaults}
+            sensor={device.sensor}
+            opossum={device.opossum}
+            onAddDevice={device.addDevice}
+            onDisconnectSensor={device.disconnectSensor}
+            onDisconnectOpossum={device.disconnectOpossum}
           />
-          {/* 紧急停止 */}
-          {device.connected && (
+          {/* 紧急停止：Coyote 或 Opossum 任一已连接就必须可见——两者都是可能
+              正在输出的设备，只看 Coyote 会让"只连了 Opossum"的用户找不到
+              一键停止按钮。 */}
+          {(device.connected || device.opossum?.connected) && (
             <button
               onClick={device.stopAll}
               className="flex h-9 items-center gap-1 rounded-[10px] bg-[var(--danger-soft)] px-2.5 text-xs font-medium text-[var(--danger)] transition-opacity hover:opacity-80"
@@ -528,6 +570,16 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
               currentIndexA, currentIndexB,
               firingA,
               firingB,
+              opossumConnected: device.opossum?.connected ?? false,
+              opossumIntensityA: device.opossum?.intensityA ?? 0,
+              opossumIntensityB: device.opossum?.intensityB ?? 0,
+              opossumBattery: device.opossum?.battery ?? null,
+              sensorKind: device.sensor?.kind,
+              sensorConnected: device.sensor?.connected ?? false,
+              sensorBattery: device.sensor?.battery ?? null,
+              sensorLastEvent: device.sensor?.lastEvent ?? null,
+              sensorLastValue: device.sensor?.lastValue ?? null,
+              sensorLastEventAt: device.sensor?.lastEventAt ?? null,
             } satisfies MemberState}
             selfLimitA={device.limitA}
             selfLimitB={device.limitB}
