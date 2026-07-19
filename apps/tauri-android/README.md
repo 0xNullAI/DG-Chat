@@ -55,6 +55,33 @@ regeneration:
    root, before `<application>`). The template explains each permission.
 2. Bump `gen/android/app/build.gradle.kts` `minSdk` to `26` (required by
    `@mnlphlp/plugin-blec`'s Android backend).
+3. Re-apply the release-signing config from
+   [`signing.gradle.kts.template`](./signing.gradle.kts.template) into
+   `gen/android/app/build.gradle.kts` — see "Release builds" below for why
+   this is needed and what it reads.
+
+## Release builds
+
+`gen/android/` is regenerated from scratch by `cargo tauri android init` and
+is gitignored, so the release-signing config isn't checked in anywhere — it
+has to be re-applied by hand after every regeneration (step 3 above), reading
+from [`signing.gradle.kts.template`](./signing.gradle.kts.template).
+
+To produce an installable release APK, set these environment variables
+before building (keystore path + passwords are kept outside the repo, not
+committed anywhere):
+
+```bash
+export DG_CHAT_KEYSTORE=/path/to/dg-chat-release.jks
+export DG_CHAT_ALIAS=dg-chat
+export DG_CHAT_STORE_PASS=...
+export DG_CHAT_KEY_PASS=...
+npm run tauri:android:build -- --apk --target aarch64
+```
+
+Without these set, `signingConfigs.release` has no `storeFile`, and Gradle
+either fails on the release build type or (for `debug`) it doesn't matter —
+debug builds always use the Android debug key regardless.
 
 ## Develop
 
