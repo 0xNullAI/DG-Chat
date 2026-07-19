@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   DeviceSession,
   type DeviceClientFactory,
+  type TauriAuxConnectFn,
   type WaveFrame,
   type DeviceInfo,
   type SensorSummary,
@@ -12,6 +13,12 @@ import type { DeviceKind } from '../lib/protocol';
 export interface UseDeviceOptions {
   /** Override the underlying DeviceClient transport. Used by the Tauri shell. */
   clientFactory?: DeviceClientFactory;
+  /**
+   * Override for connecting the three auxiliary device kinds on Tauri
+   * Android, where a single cross-kind chooser isn't available yet. When
+   * supplied, `connectDeviceKindTauri()` becomes usable.
+   */
+  connectAuxTauri?: TauriAuxConnectFn;
 }
 
 /**
@@ -73,36 +80,49 @@ export function useDevice(options: UseDeviceOptions = {}) {
   // `Cannot update ref during render` lint that fires when a ref is
   // assigned in the render body.
   const clientFactoryRef = useRef(options.clientFactory);
+  const connectAuxTauriRef = useRef(options.connectAuxTauri);
 
-  /** 确保 session 已创建（懒创建，首次 connect/addDevice 时才需要）。 */
+  /** 确保 session 已创建（懒创建，首次 connectDevice 时才需要）。 */
   const ensureSession = useCallback((): DeviceSession => {
     if (!sessionRef.current) {
-      const session = new DeviceSession(clientFactoryRef.current);
+      const session = new DeviceSession(clientFactoryRef.current, connectAuxTauriRef.current);
       session.setOnStateChange(syncState);
       sessionRef.current = session;
     }
     return sessionRef.current;
   }, [syncState]);
 
-  /** 扫描并连接 Coyote 主机（原有唯一连接入口，行为不变）。 */
-  const connect = useCallback(async () => {
-    const session = ensureSession();
-    const info = await session.connectCoyote();
-    setDeviceInfo(info);
-    syncState();
-  }, [ensureSession, syncState]);
-
   /**
-   * 添加第二/第三个设备（传感器或 Opossum）。打开浏览器蓝牙选择器，按名字
-   * 前缀自动识别设备种类并接入对应槽位。仅 Web Bluetooth 环境可用，见
-   * DeviceSession 类文档。
+   * 统一连接入口：打开一个蓝牙选择器，覆盖全部 4 种 DG-Lab 设备
+   * （Coyote / 爪印传感器 / 灵猫边缘传感器 / Opossum），按名字前缀自动识别
+   * 种类并接入对应槽位——Coyote 走 DeviceSession.connectDevice() 内部路由到
+   * coyote.connectViaChosenDevice()，其余三种走 attachSensor/attachOpossum。
+   * 反复点击可依次添加更多设备。仅 Web Bluetooth 环境可用，见 DeviceSession
+   * 类文档。
    */
-  const addDevice = useCallback(async (): Promise<{ kind: DeviceKind; name: string }> => {
+  const connectDevice = useCallback(async (): Promise<{ kind: DeviceKind; name: string }> => {
     const session = ensureSession();
-    const result = await session.addDevice();
+    const { coyoteInfo, ...result } = await session.connectDevice();
+    if (coyoteInfo) setDeviceInfo(coyoteInfo);
     syncState();
     return result;
   }, [ensureSession, syncState]);
+
+  /**
+   * Tauri Android's kind-first connect entry point — see
+   * `DeviceSession.connectDeviceKindTauri()`'s doc. Only functional when
+   * the hook was constructed with `connectAuxTauri` (Android shell only).
+   */
+  const connectDeviceKindTauri = useCallback(
+    async (kind: DeviceKind): Promise<{ kind: DeviceKind; name: string }> => {
+      const session = ensureSession();
+      const { coyoteInfo, ...result } = await session.connectDeviceKindTauri(kind);
+      if (coyoteInfo) setDeviceInfo(coyoteInfo);
+      syncState();
+      return result;
+    },
+    [ensureSession, syncState],
+  );
 
   /** 断开整个 session（Coyote + 传感器 + Opossum）。用于"断开"按钮和离开房间。 */
   const disconnect = useCallback(() => {
@@ -228,7 +248,6 @@ export function useDevice(options: UseDeviceOptions = {}) {
     waveActiveB,
     waveIdA,
     waveIdB,
-    connect,
     disconnect,
     disconnectCoyote,
     setStrength,
@@ -246,7 +265,8 @@ export function useDevice(options: UseDeviceOptions = {}) {
     // —— 多设备（sensor / opossum） ——
     sensor,
     opossum,
-    addDevice,
+    connectDevice,
+    connectDeviceKindTauri,
     disconnectSensor,
     disconnectOpossum,
     setOpossumIntensity,

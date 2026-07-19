@@ -1,7 +1,7 @@
 {
   "name": "dg-chat",
   "private": true,
-  "version": "2.4.1",
+  "version": "2.5.0",
   "type": "module",
   "workspaces": [
     "apps/*"
@@ -22,10 +22,10 @@
     "tauri:android:build": "npm run tauri:android:build -w @dg-chat/tauri-android"
   },
   "dependencies": {
-    "@dg-kit/core": "^1.4.0",
-    "@dg-kit/protocol": "^1.4.0",
-    "@dg-kit/transport-webbluetooth": "^1.4.0",
-    "@dg-kit/waveforms": "^1.4.0",
+    "@dg-kit/core": "^1.6.0",
+    "@dg-kit/protocol": "^1.6.0",
+    "@dg-kit/transport-webbluetooth": "^1.6.0",
+    "@dg-kit/waveforms": "^1.6.0",
     "fflate": "^0.8.2",
     "lucide-react": "^1.11.0",
     "qrcode.react": "^4.2.0",

@@ -132,7 +132,7 @@ describe('DeviceSession — multi-device routing', () => {
     (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
 
     const session = new DeviceSession();
-    const result = await session.addDevice();
+    const result = await session.connectDevice();
 
     expect(result.kind).toBe('paw-prints');
     const summary = session.getSensorSummary();
@@ -146,7 +146,7 @@ describe('DeviceSession — multi-device routing', () => {
     (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
 
     const session = new DeviceSession();
-    const result = await session.addDevice();
+    const result = await session.connectDevice();
     expect(result.kind).toBe('civet-edging');
 
     // 0xD0 pressure notification, signed int16 LE at offset 8-9, centi-kPa.
@@ -170,7 +170,7 @@ describe('DeviceSession — multi-device routing', () => {
     (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
 
     const session = new DeviceSession();
-    const result = await session.addDevice();
+    const result = await session.connectDevice();
     expect(result.kind).toBe('opossum');
     expect(session.getOpossumSummary()?.connected).toBe(true);
 
@@ -185,15 +185,23 @@ describe('DeviceSession — multi-device routing', () => {
     expect(session.getOpossumSummary()?.intensityB).toBe(0);
   });
 
-  it('rejects a Coyote-prefixed name without ever opening a GATT connection', async () => {
+  it('routes a Coyote-prefixed device pick to coyote.connectViaChosenDevice() instead of rejecting it', async () => {
+    // Regression coverage for the unified connectDevice() entry point: a
+    // Coyote pick through the shared chooser used to be rejected outright
+    // (see the old "连接" vs "添加设备" split) — it must now connect through
+    // DGLabDevice's own lifecycle via WebBluetoothDeviceClient.connectDevice().
     const device = new MockDevice(`${V3_DEVICE_NAME_PREFIX}000`, 'coyote-1');
     (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
 
     const session = new DeviceSession();
-    await expect(session.addDevice()).rejects.toThrow(/Coyote/);
-    // Kind is identified from device.name alone; addDevice() must reject
-    // before ever calling gatt.connect() for a Coyote pick (see the class
-    // doc on why Coyote is rejected here rather than routed to `coyote`).
+    const result = await session.connectDevice();
+
+    expect(result.kind).toBe('coyote');
+    expect(session.coyote.getState().connected).toBe(true);
+    // Default 50 safety cap still applies via the shared connectViaChosenDevice()/
+    // connect() bookkeeping in DGLabDevice.
+    expect(session.coyote.getState().limitA).toBe(50);
+    expect(session.coyote.getState().limitB).toBe(50);
     expect(device.gatt.disconnect).not.toHaveBeenCalled();
   });
 
@@ -202,7 +210,7 @@ describe('DeviceSession — multi-device routing', () => {
     (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
 
     const session = new DeviceSession();
-    await expect(session.addDevice()).rejects.toThrow(/未识别/);
+    await expect(session.connectDevice()).rejects.toThrow(/未识别/);
   });
 
   it('replaces the previous sensor when a second sensor is added (v1: one sensor at a time)', async () => {
@@ -211,10 +219,10 @@ describe('DeviceSession — multi-device routing', () => {
     (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([first, second]);
 
     const session = new DeviceSession();
-    await session.addDevice();
+    await session.connectDevice();
     expect(session.getSensorSummary()?.kind).toBe('paw-prints');
 
-    await session.addDevice();
+    await session.connectDevice();
     expect(session.getSensorSummary()?.kind).toBe('civet-edging');
     expect(first.gatt.disconnect).toHaveBeenCalled();
   });
@@ -225,8 +233,8 @@ describe('DeviceSession — multi-device routing', () => {
     (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([sensor, opossum]);
 
     const session = new DeviceSession();
-    await session.addDevice();
-    await session.addDevice();
+    await session.connectDevice();
+    await session.connectDevice();
     expect(session.getSensorSummary()).not.toBeNull();
     expect(session.getOpossumSummary()).not.toBeNull();
 
@@ -243,7 +251,7 @@ describe('DeviceSession — multi-device routing', () => {
     const onChange = vi.fn();
     session.setOnStateChange(onChange);
 
-    await session.addDevice();
+    await session.connectDevice();
     expect(onChange).toHaveBeenCalled();
 
     onChange.mockClear();
@@ -263,7 +271,7 @@ describe('DeviceSession — multi-device routing', () => {
     (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
 
     const session = new DeviceSession();
-    await session.addDevice();
+    await session.connectDevice();
 
     const state = session.coyote.getState();
     expect(state.connected).toBe(false);
@@ -278,7 +286,7 @@ describe('DeviceSession — multi-device routing', () => {
       (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
 
       const session = new DeviceSession();
-      await session.addDevice();
+      await session.connectDevice();
 
       session.opossumBurst('A', 160, 500, 200);
       await vi.advanceTimersByTimeAsync(0);
@@ -313,10 +321,10 @@ describe('DeviceSession — multi-device routing', () => {
     (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([good, broken]);
 
     const session = new DeviceSession();
-    await session.addDevice();
+    await session.connectDevice();
     expect(session.getSensorSummary()?.kind).toBe('paw-prints');
 
-    await expect(session.addDevice()).rejects.toThrow();
+    await expect(session.connectDevice()).rejects.toThrow();
 
     expect(session.getSensorSummary()?.kind).toBe('paw-prints');
     expect(session.getSensorSummary()?.connected).toBe(true);
