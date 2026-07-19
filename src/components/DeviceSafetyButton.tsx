@@ -22,19 +22,12 @@ interface DeviceSafetyButtonProps {
   /** 已接入的 Opossum 负鼠振动控制器，未接入为 null。 */
   opossum: OpossumSummary | null;
   /**
-   * 统一连接入口：打开一个蓝牙选择器，覆盖全部 4 种 DG-Lab 设备
+   * 统一连接入口：打开一个设备选择器，覆盖全部 4 种 DG-Lab 设备
    * （Coyote 主机 / 爪印传感器 / 灵猫边缘传感器 / Opossum），按设备种类
-   * 自动接入对应槽位。反复点击可依次连接多台设备。仅 Web Bluetooth 环境
-   * 可用——见 onConnectDeviceKindTauri。
+   * 自动接入对应槽位。反复点击可依次连接多台设备。Web 端走 Web Bluetooth
+   * 选择器，Tauri Android 端走 plugin-blec 扫描 + 设备选择器——两端行为一致。
    */
   onConnectDevice: () => Promise<{ kind: DeviceKind; name: string }>;
-  /**
-   * Tauri Android 专用：按种类连接（先选种类，再从选择器中选设备）。
-   * 仅在 Tauri Android 壳层传入时可用；传入时替代上面的统一入口按钮，因为
-   * `onConnectDevice`（Web Bluetooth 单一选择器）在 Android WebView 里不可用。
-   * 见 DeviceSession.connectDeviceKindTauri() 文档。
-   */
-  onConnectDeviceKindTauri?: (kind: DeviceKind) => Promise<{ kind: DeviceKind; name: string }>;
   onDisconnectSensor: () => void;
   onDisconnectOpossum: () => void;
 }
@@ -44,13 +37,6 @@ const SENSOR_KIND_LABEL: Record<string, string> = {
   'civet-edging': '灵猫边缘传感器',
 };
 
-const TAURI_KIND_BUTTONS: { kind: DeviceKind; label: string }[] = [
-  { kind: 'coyote', label: 'Coyote 主机' },
-  { kind: 'paw-prints', label: '爪印传感器' },
-  { kind: 'civet-edging', label: '灵猫边缘传感器' },
-  { kind: 'opossum', label: 'Opossum' },
-];
-
 export function DeviceSafetyButton({
   connected, deviceName, battery,
   onDisconnect,
@@ -58,12 +44,11 @@ export function DeviceSafetyButton({
   backgroundBehavior, onSetBackgroundBehavior,
   firePolicy, onSetFirePolicy,
   onRestoreDefaults,
-  sensor, opossum, onConnectDevice, onConnectDeviceKindTauri, onDisconnectSensor, onDisconnectOpossum,
+  sensor, opossum, onConnectDevice, onDisconnectSensor, onDisconnectOpossum,
 }: DeviceSafetyButtonProps) {
   const [open, setOpen] = useState(false);
   const [connectingDevice, setConnectingDevice] = useState(false);
   const [connectDeviceError, setConnectDeviceError] = useState<string | null>(null);
-  const [connectingKind, setConnectingKind] = useState<DeviceKind | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [anchorTop, setAnchorTop] = useState(0);
 
@@ -90,20 +75,6 @@ export function DeviceSafetyButton({
       setConnectDeviceError(err instanceof Error ? err.message : '连接设备失败');
     } finally {
       setConnectingDevice(false);
-    }
-  }
-
-  /** Tauri Android：按种类连接。见 `onConnectDeviceKindTauri` prop 文档。 */
-  async function handleConnectDeviceKindTauri(kind: DeviceKind) {
-    if (!onConnectDeviceKindTauri) return;
-    setConnectDeviceError(null);
-    setConnectingKind(kind);
-    try {
-      await onConnectDeviceKindTauri(kind);
-    } catch (err) {
-      setConnectDeviceError(err instanceof Error ? err.message : '连接设备失败');
-    } finally {
-      setConnectingKind(null);
     }
   }
 
@@ -139,54 +110,27 @@ export function DeviceSafetyButton({
 
       <Popover open={open} onOpenChange={setOpen} title="设备与个人安全设置" anchorTop={anchorTop}>
         <div className="space-y-4">
-          {onConnectDeviceKindTauri ? (
-            /* Tauri Android：按种类连接。Web Bluetooth 在 Android WebView 中不可用，
-               所以这里先选种类、再从（plugin-blec 扫描出的）设备选择器中选设备，
-               而不是 Web 端的单一选择器自动识别。见 DeviceSession.connectDeviceKindTauri()
-               文档。 */
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-[var(--text-soft)]">连接设备</p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {TAURI_KIND_BUTTONS.map(({ kind, label }) => (
-                  <button
-                    key={kind}
-                    onClick={() => void handleConnectDeviceKindTauri(kind)}
-                    disabled={connectingKind !== null}
-                    className="flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-soft)] px-1.5 text-xs font-medium text-[var(--accent)] transition-colors hover:opacity-90 disabled:opacity-50"
-                  >
-                    {connectingKind === kind ? '连接中…' : label}
-                  </button>
-                ))}
-              </div>
-              {connectDeviceError && (
-                <p className="text-[10px] text-[var(--danger)]">{connectDeviceError}</p>
-              )}
-              <p className="text-[10px] text-[var(--text-faint)]">
-                每种设备一次只支持接入一台；重复点击同一种类可切换到新选取的设备。
-              </p>
-            </div>
-          ) : (
-            /* 统一连接入口：一个按钮 + 一次蓝牙选择器，覆盖 Coyote 主机 / 爪印传感器 /
-                灵猫边缘传感器 / Opossum 全部 4 种设备，按名字自动识别种类接入对应槽位。
-                可反复点击以依次连接多台设备。 */
-            <div className="space-y-2">
-              <button
-                onClick={handleConnectDevice}
-                disabled={connectingDevice}
-                className="flex h-9 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-soft)] text-xs font-medium text-[var(--accent)] transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {connected ? <Bluetooth size={14} /> : <BluetoothOff size={14} />}
-                {connectingDevice ? '正在打开选择器…' : '连接设备'}
-              </button>
-              {connectDeviceError && (
-                <p className="text-[10px] text-[var(--danger)]">{connectDeviceError}</p>
-              )}
-              <p className="text-[10px] text-[var(--text-faint)]">
-                自动识别 Coyote 主机、爪印传感器、灵猫边缘传感器、Opossum 振动控制器，
-                点击后从选择器中选取即可；每种设备一次只支持接入一台，重复点击可依次连接多台。
-              </p>
-            </div>
-          )}
+          {/* 统一连接入口：一个按钮 + 一次设备选择器，覆盖 Coyote 主机 / 爪印传感器 /
+              灵猫边缘传感器 / Opossum 全部 4 种设备，按名字自动识别种类接入对应槽位。
+              Web 端弹出 Web Bluetooth 选择器，Tauri Android 端弹出 plugin-blec 扫描出
+              的设备选择器——两端行为一致，可反复点击以依次连接多台设备。 */}
+          <div className="space-y-2">
+            <button
+              onClick={handleConnectDevice}
+              disabled={connectingDevice}
+              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-soft)] text-xs font-medium text-[var(--accent)] transition-colors hover:opacity-90 disabled:opacity-50"
+            >
+              {connected ? <Bluetooth size={14} /> : <BluetoothOff size={14} />}
+              {connectingDevice ? '正在打开选择器…' : '连接设备'}
+            </button>
+            {connectDeviceError && (
+              <p className="text-[10px] text-[var(--danger)]">{connectDeviceError}</p>
+            )}
+            <p className="text-[10px] text-[var(--text-faint)]">
+              自动识别 Coyote 主机、爪印传感器、灵猫边缘传感器、Opossum 振动控制器，
+              点击后从选择器中选取即可；每种设备一次只支持接入一台，重复点击可依次连接多台。
+            </p>
+          </div>
 
           {/* Coyote 主机状态 */}
           <div className="flex items-center justify-between gap-3 border-t border-[var(--surface-border)] pt-3">
