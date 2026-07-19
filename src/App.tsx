@@ -472,7 +472,6 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             connected={device.connected}
             deviceName={device.deviceInfo?.name ?? null}
             battery={device.battery}
-            onConnect={device.connect}
             onDisconnect={device.disconnectCoyote}
             limitA={device.limitA}
             limitB={device.limitB}
@@ -484,7 +483,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             onRestoreDefaults={waveforms.restoreDefaults}
             sensor={device.sensor}
             opossum={device.opossum}
-            onAddDevice={device.addDevice}
+            onConnectDevice={device.connectDevice}
             onDisconnectSensor={device.disconnectSensor}
             onDisconnectOpossum={device.disconnectOpossum}
           />
