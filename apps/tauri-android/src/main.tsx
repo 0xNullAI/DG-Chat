@@ -7,6 +7,7 @@ import App from '@chat/App';
 import './styles.css';
 import { TauriBlecDeviceClient } from '@dg-kit/transport-tauri-blec';
 import { showDevicePicker } from './components/show-device-picker';
+import { connectAuxTauri } from './connect-aux-tauri';
 import { wrapWithLifecycleSafety } from './lifecycle-safety';
 import { installAndroidShellBehaviours, withBlePermissionHelp } from './android-shell';
 
@@ -42,6 +43,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           connect: () => withBlePermissionHelp(() => inner.connect()),
         };
       }}
+      connectAuxTauri={(kind, adapter) => withBlePermissionHelp(() => connectAuxTauri(kind, adapter))}
     />
   </React.StrictMode>,
 );
