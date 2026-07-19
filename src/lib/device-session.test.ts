@@ -286,7 +286,13 @@ describe('DeviceSession — multi-device routing', () => {
       (navigator as unknown as { bluetooth?: unknown }).bluetooth = mockBluetoothQueue([device]);
 
       const session = new DeviceSession();
-      await session.connectDevice();
+      // connectDevice() now goes through runWithGattReadyRetry's default
+      // 300ms initial delay (a real setTimeout, captured by fake timers) —
+      // start the promise and pump the clock past it rather than awaiting
+      // directly, or it hangs until vitest's own test timeout.
+      const connecting = session.connectDevice();
+      await vi.advanceTimersByTimeAsync(300);
+      await connecting;
 
       session.opossumBurst('A', 160, 500, 200);
       await vi.advanceTimersByTimeAsync(0);

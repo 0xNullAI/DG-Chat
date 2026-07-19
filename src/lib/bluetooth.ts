@@ -13,6 +13,7 @@ import {
   CivetPressureSensorAdapter,
   OpossumVibrateAdapter,
   createEmptyOpossumState,
+  runWithGattReadyRetry,
   type WebBluetoothProtocolAdapter,
   type BluetoothDeviceLike,
   type BluetoothRemoteGATTServerLike,
@@ -475,7 +476,10 @@ export class DeviceSession {
     // (v1: one sensor at a time) — if onConnected() throws (a flaky/wrong
     // device picked mid-swap), the previous, working sensor must still be
     // intact rather than already disconnected with nothing to fall back to.
-    await adapter.onConnected({ device, server });
+    // Wrapped in a retry: these sensors share Coyote's exact GATT skeleton,
+    // so they hit the same "gatt.connect() resolves before service
+    // discovery" Web Bluetooth race on a first-time pairing.
+    await runWithGattReadyRetry(() => adapter.onConnected({ device, server }), {});
     this.attachConnectedSensor(kind, adapter, device);
   }
 
@@ -558,8 +562,9 @@ export class DeviceSession {
   private async attachOpossum(device: BluetoothDeviceLike, server: BluetoothRemoteGATTServerLike): Promise<void> {
     const adapter = new OpossumVibrateAdapter();
     // Same ordering fix as attachSensor(): connect first, tear down the old
-    // Opossum only once the new one has actually succeeded.
-    await adapter.onConnected({ device, server });
+    // Opossum only once the new one has actually succeeded. Same GATT-ready
+    // retry as attachSensor() too — see that call site's comment.
+    await runWithGattReadyRetry(() => adapter.onConnected({ device, server }), {});
     this.attachConnectedOpossum(adapter, device);
   }
 
