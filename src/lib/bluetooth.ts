@@ -37,6 +37,25 @@ import type {
  */
 export type DeviceClientFactory = (protocol: WebBluetoothProtocolAdapter) => DeviceClient;
 
+/**
+ * Tauri Android override hook for connecting one of the three auxiliary
+ * device kinds. Called with a freshly-constructed protocol adapter (so the
+ * caller doesn't need to import `@dg-kit/protocol` classes itself beyond
+ * what it already does); returns the connected `BluetoothDeviceLike` once
+ * `adapter.onConnected()` has already run.
+ *
+ * The Tauri Android shell implements this on top of `@dg-kit/transport-
+ * tauri-blec`'s `connectTauriAuxDevice()` (scan via plugin-blec + the host
+ * device picker, scoped to the given kind's name prefix). See
+ * `DeviceSession.connectDeviceKindTauri()`'s doc for why this is kind-first
+ * (one call per kind) rather than a single cross-kind chooser like
+ * `requestDgLabDevice()` on web.
+ */
+export type TauriAuxConnectFn = (
+  kind: SensorKind | 'opossum',
+  adapter: PawPrintsSensorAdapter | CivetPressureSensorAdapter | OpossumVibrateAdapter,
+) => Promise<BluetoothDeviceLike>;
+
 export type DeviceVersion = 'v2' | 'v3';
 
 export interface DeviceInfo {
@@ -355,14 +374,19 @@ function describeCivetReading(reading: CivetPressureReading): { text: string; va
  * required a second, Coyote-only chooser instead) — that limitation is
  * gone now that `connectDevice()` exists upstream.
  *
- * Web Bluetooth only. Android's WebView has no Web Bluetooth (see
- * apps/tauri-android/README.md), so `connectDevice()` fails fast there with
- * a clear "unsupported environment" error rather than silently doing
- * nothing. `DGLabDevice.connectViaChosenDevice()` additionally throws its
- * own clear error on any `DeviceClient` (e.g. Tauri's
- * `TauriBlecDeviceClient`) that doesn't yet expose a `connectDevice`
- * method — extending the unified picker to Tauri needs equivalent support
- * added there first (in-flight, separate DG-Kit work; out of scope here).
+ * `connectDevice()` (Web Bluetooth) fails fast on Android's WebView (see
+ * apps/tauri-android/README.md) with a clear "unsupported environment"
+ * error. `DGLabDevice.connectViaChosenDevice()` additionally throws its own
+ * clear error on any `DeviceClient` (e.g. Tauri's `TauriBlecDeviceClient`)
+ * that doesn't yet expose a `connectDevice` method — a single cross-kind
+ * chooser on Tauri needs equivalent support added upstream first (separate
+ * DG-Kit work; out of scope here). Until then, the Tauri Android shell uses
+ * `connectDeviceKindTauri(kind)` instead: the caller (Android UI) picks the
+ * kind first, then this method routes to that kind's own connect path —
+ * Coyote via `this.coyote.connect()` (self-contained scan, unchanged), the
+ * three aux kinds via the injected `connectAuxTauri` hook. Two steps
+ * (choose kind, then choose device) instead of Web's one (a single chooser
+ * that auto-detects kind), but fully functional today.
  */
 export class DeviceSession {
   readonly coyote: DGLabDevice;
@@ -386,8 +410,10 @@ export class DeviceSession {
   private unsubscribeOpossumState: (() => void) | null = null;
 
   private onStateChange: (() => void) | null = null;
+  private readonly connectAuxTauri: TauriAuxConnectFn | null;
 
-  constructor(clientFactory?: DeviceClientFactory) {
+  constructor(clientFactory?: DeviceClientFactory, connectAuxTauri?: TauriAuxConnectFn) {
+    this.connectAuxTauri = connectAuxTauri ?? null;
     this.coyote = new DGLabDevice(clientFactory);
     this.coyote.setOnStateChange(() => this.emit());
   }
@@ -448,6 +474,43 @@ export class DeviceSession {
     return { kind, name: device.name ?? '', coyoteInfo };
   }
 
+  /**
+   * Tauri Android's connect entry point — see class doc for why this is
+   * kind-first instead of the single auto-detecting chooser `connectDevice()`
+   * uses. The caller (Android UI) already knows which kind the user wants
+   * to add.
+   *
+   * Coyote reuses `this.coyote.connect()` unchanged (its own self-contained
+   * plugin-blec scan). The three aux kinds require `connectAuxTauri` to
+   * have been supplied at construction — throws a clear error otherwise
+   * (e.g. if this session was built for the web bundle by mistake).
+   */
+  async connectDeviceKindTauri(
+    kind: DeviceKind,
+  ): Promise<{ kind: DeviceKind; name: string; coyoteInfo?: DeviceInfo }> {
+    if (kind === 'coyote') {
+      const coyoteInfo = await this.coyote.connect();
+      return { kind, name: coyoteInfo.name, coyoteInfo };
+    }
+
+    if (!this.connectAuxTauri) {
+      throw new Error('当前环境不支持该连接方式');
+    }
+
+    if (kind === 'opossum') {
+      const adapter = new OpossumVibrateAdapter();
+      const device = await this.connectAuxTauri('opossum', adapter);
+      this.attachConnectedOpossum(adapter, device);
+      return { kind, name: device.name ?? '' };
+    }
+
+    const adapter: PawPrintsSensorAdapter | CivetPressureSensorAdapter =
+      kind === 'paw-prints' ? new PawPrintsSensorAdapter() : new CivetPressureSensorAdapter();
+    const device = await this.connectAuxTauri(kind, adapter);
+    this.attachConnectedSensor(kind, adapter, device);
+    return { kind, name: device.name ?? '' };
+  }
+
   private async attachSensor(
     kind: SensorKind,
     device: BluetoothDeviceLike,
@@ -460,6 +523,24 @@ export class DeviceSession {
     // device picked mid-swap), the previous, working sensor must still be
     // intact rather than already disconnected with nothing to fall back to.
     await adapter.onConnected({ device, server });
+    this.attachConnectedSensor(kind, adapter, device);
+  }
+
+  /**
+   * Shared bookkeeping once a sensor adapter's `onConnected()` has already
+   * resolved — used both by `attachSensor()` (Web Bluetooth: it runs
+   * `onConnected()` itself first) and `connectDeviceKindTauri()` (Tauri:
+   * `connectAuxTauri()` runs `onConnected()` internally via
+   * `connectTauriAuxDevice()` before returning the device).
+   */
+  private attachConnectedSensor(
+    kind: SensorKind,
+    adapter: PawPrintsSensorAdapter | CivetPressureSensorAdapter,
+    device: BluetoothDeviceLike,
+  ): void {
+    // Replace whatever was there before only now that the new sensor is
+    // confirmed connected (v1: one sensor at a time) — same ordering
+    // guarantee as the inline version this was factored out of.
     this.disconnectSensor();
 
     this.sensorKind = kind;
@@ -528,6 +609,15 @@ export class DeviceSession {
     // Same ordering fix as attachSensor(): connect first, tear down the old
     // Opossum only once the new one has actually succeeded.
     await adapter.onConnected({ device, server });
+    this.attachConnectedOpossum(adapter, device);
+  }
+
+  /**
+   * Shared bookkeeping once an Opossum adapter's `onConnected()` has already
+   * resolved — see `attachConnectedSensor()`'s doc for why this is split out
+   * (Web Bluetooth vs. Tauri run `onConnected()` at different call sites).
+   */
+  private attachConnectedOpossum(adapter: OpossumVibrateAdapter, device: BluetoothDeviceLike): void {
     this.disconnectOpossum();
 
     this.opossumAdapter = adapter;

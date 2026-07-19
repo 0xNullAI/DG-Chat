@@ -18,7 +18,11 @@ export function DevicePicker({ open, devices, onSelect, onCancel }: Props) {
   return (
     <div className="dgch-picker-backdrop" role="dialog" aria-modal="true">
       <div className="dgch-picker-panel">
-        <header className="dgch-picker-header">选择郊狼设备</header>
+        {/* Reused for all 4 device kinds now (Coyote + the 3 aux kinds via
+            DeviceSession.connectDeviceKindTauri()) — generic title since the
+            caller already told the user which kind via the kind buttons in
+            DeviceSafetyButton. */}
+        <header className="dgch-picker-header">选择设备</header>
         <ul className="dgch-picker-list">
           {sorted.length === 0 ? (
             <li className="dgch-picker-empty">

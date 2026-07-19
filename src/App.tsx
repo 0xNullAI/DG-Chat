@@ -14,7 +14,7 @@ import { DeviceSafetyButton } from './components/DeviceSafetyButton';
 import { useRoomAgents, type AgentDeviceTarget } from './hooks/use-room-agents';
 import { LogOut, Sun, Moon, Drama, Bot } from 'lucide-react';
 import { uploadMedia } from './lib/media';
-import type { DeviceClientFactory } from './lib/bluetooth';
+import type { DeviceClientFactory, TauriAuxConnectFn } from './lib/bluetooth';
 import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
 import type { WaveFrame } from './lib/waveforms';
 
@@ -25,6 +25,13 @@ export interface AppProps {
    * `TauriBlecDeviceClient` so the same React UI runs natively.
    */
   deviceClientFactory?: DeviceClientFactory;
+  /**
+   * Supplied by the Tauri Android shell only. When present, `DeviceSafetyButton`
+   * shows a kind-first connect UI (choose Coyote/爪印/灵猫/Opossum, then pick
+   * the device) instead of the single Web-Bluetooth chooser button — see
+   * `DeviceSession.connectDeviceKindTauri()`'s doc for why.
+   */
+  connectAuxTauri?: TauriAuxConnectFn;
 }
 
 interface ChannelRotationDevice {
@@ -95,7 +102,7 @@ function applyFire(d: FireApplyDeps) {
   d.setFiring(true);
 }
 
-export default function App({ deviceClientFactory }: AppProps = {}) {
+export default function App({ deviceClientFactory, connectAuxTauri }: AppProps = {}) {
   const [displayName, setDisplayName] = useState(() =>
     localStorage.getItem('dg-chat-name') ?? ''
   );
@@ -126,7 +133,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
 
   const safety = useSafetyAccepted();
   const peerRoom = usePeerRoom(displayName);
-  const device = useDevice({ clientFactory: deviceClientFactory });
+  const device = useDevice({ clientFactory: deviceClientFactory, connectAuxTauri });
   const waveforms = useWaveforms();
 
   // 保持引用最新，避免闭包过时
@@ -484,6 +491,7 @@ export default function App({ deviceClientFactory }: AppProps = {}) {
             sensor={device.sensor}
             opossum={device.opossum}
             onConnectDevice={device.connectDevice}
+            onConnectDeviceKindTauri={connectAuxTauri ? device.connectDeviceKindTauri : undefined}
             onDisconnectSensor={device.disconnectSensor}
             onDisconnectOpossum={device.disconnectOpossum}
           />
