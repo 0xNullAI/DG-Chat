@@ -22,10 +22,10 @@
     "tauri:android:build": "npm run tauri:android:build -w @dg-chat/tauri-android"
   },
   "dependencies": {
-    "@dg-kit/core": "file:/Users/chengaoshen/Downloads/Project/DG/DG-Kit/packages/core",
-    "@dg-kit/protocol": "file:/Users/chengaoshen/Downloads/Project/DG/DG-Kit/packages/protocol",
-    "@dg-kit/transport-webbluetooth": "file:/Users/chengaoshen/Downloads/Project/DG/DG-Kit/packages/transport-webbluetooth",
-    "@dg-kit/waveforms": "file:/Users/chengaoshen/Downloads/Project/DG/DG-Kit/packages/waveforms",
+    "@dg-kit/core": "^1.4.0",
+    "@dg-kit/protocol": "^1.4.0",
+    "@dg-kit/transport-webbluetooth": "^1.4.0",
+    "@dg-kit/waveforms": "^1.4.0",
     "fflate": "^0.8.2",
     "lucide-react": "^1.11.0",
     "qrcode.react": "^4.2.0",
@@ -33,7 +33,7 @@
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260608.1",
+    "@cloudflare/workers-types": "^5.20260714.1",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.2.4",
     "@testing-library/jest-dom": "^6.9.1",
