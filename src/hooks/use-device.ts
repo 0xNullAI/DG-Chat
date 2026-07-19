@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   DeviceSession,
   type DeviceClientFactory,
-  type TauriAuxConnectFn,
+  type RequestDeviceFn,
   type WaveFrame,
   type DeviceInfo,
   type SensorSummary,
@@ -14,11 +14,12 @@ export interface UseDeviceOptions {
   /** Override the underlying DeviceClient transport. Used by the Tauri shell. */
   clientFactory?: DeviceClientFactory;
   /**
-   * Override for connecting the three auxiliary device kinds on Tauri
-   * Android, where a single cross-kind chooser isn't available yet. When
-   * supplied, `connectDeviceKindTauri()` becomes usable.
+   * Override `DeviceSession.connectDevice()`'s device-picking step. Defaults
+   * to a single Web Bluetooth chooser scoped to all 4 DG-Lab device kinds.
+   * The Tauri Android shell passes `requestDgLabDeviceTauri()` instead —
+   * same one-chooser, auto-detected-kind experience over plugin-blec.
    */
-  connectAuxTauri?: TauriAuxConnectFn;
+  requestDevice?: RequestDeviceFn;
 }
 
 /**
@@ -80,12 +81,12 @@ export function useDevice(options: UseDeviceOptions = {}) {
   // `Cannot update ref during render` lint that fires when a ref is
   // assigned in the render body.
   const clientFactoryRef = useRef(options.clientFactory);
-  const connectAuxTauriRef = useRef(options.connectAuxTauri);
+  const requestDeviceRef = useRef(options.requestDevice);
 
   /** 确保 session 已创建（懒创建，首次 connectDevice 时才需要）。 */
   const ensureSession = useCallback((): DeviceSession => {
     if (!sessionRef.current) {
-      const session = new DeviceSession(clientFactoryRef.current, connectAuxTauriRef.current);
+      const session = new DeviceSession(clientFactoryRef.current, requestDeviceRef.current);
       session.setOnStateChange(syncState);
       sessionRef.current = session;
     }
@@ -93,12 +94,12 @@ export function useDevice(options: UseDeviceOptions = {}) {
   }, [syncState]);
 
   /**
-   * 统一连接入口：打开一个蓝牙选择器，覆盖全部 4 种 DG-Lab 设备
+   * 统一连接入口：打开一个设备选择器，覆盖全部 4 种 DG-Lab 设备
    * （Coyote / 爪印传感器 / 灵猫边缘传感器 / Opossum），按名字前缀自动识别
    * 种类并接入对应槽位——Coyote 走 DeviceSession.connectDevice() 内部路由到
    * coyote.connectViaChosenDevice()，其余三种走 attachSensor/attachOpossum。
-   * 反复点击可依次添加更多设备。仅 Web Bluetooth 环境可用，见 DeviceSession
-   * 类文档。
+   * 反复点击可依次添加更多设备。Web 端走 Web Bluetooth 选择器，Tauri
+   * Android 端走 plugin-blec 扫描 + 设备选择器（见 UseDeviceOptions.requestDevice）。
    */
   const connectDevice = useCallback(async (): Promise<{ kind: DeviceKind; name: string }> => {
     const session = ensureSession();
@@ -107,22 +108,6 @@ export function useDevice(options: UseDeviceOptions = {}) {
     syncState();
     return result;
   }, [ensureSession, syncState]);
-
-  /**
-   * Tauri Android's kind-first connect entry point — see
-   * `DeviceSession.connectDeviceKindTauri()`'s doc. Only functional when
-   * the hook was constructed with `connectAuxTauri` (Android shell only).
-   */
-  const connectDeviceKindTauri = useCallback(
-    async (kind: DeviceKind): Promise<{ kind: DeviceKind; name: string }> => {
-      const session = ensureSession();
-      const { coyoteInfo, ...result } = await session.connectDeviceKindTauri(kind);
-      if (coyoteInfo) setDeviceInfo(coyoteInfo);
-      syncState();
-      return result;
-    },
-    [ensureSession, syncState],
-  );
 
   /** 断开整个 session（Coyote + 传感器 + Opossum）。用于"断开"按钮和离开房间。 */
   const disconnect = useCallback(() => {
@@ -266,7 +251,6 @@ export function useDevice(options: UseDeviceOptions = {}) {
     sensor,
     opossum,
     connectDevice,
-    connectDeviceKindTauri,
     disconnectSensor,
     disconnectOpossum,
     setOpossumIntensity,
