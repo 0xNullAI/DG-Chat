@@ -14,7 +14,7 @@ import { DeviceSafetyButton } from './components/DeviceSafetyButton';
 import { useRoomAgents, type AgentDeviceTarget } from './hooks/use-room-agents';
 import { LogOut, Sun, Moon, Drama, Bot } from 'lucide-react';
 import { uploadMedia } from './lib/media';
-import type { DeviceClientFactory, TauriAuxConnectFn } from './lib/bluetooth';
+import type { DeviceClientFactory, RequestDeviceFn } from './lib/bluetooth';
 import type { DeviceCommand, MemberState, CmdAction, PlayMode, WaveformTransfer } from './lib/protocol';
 import type { WaveFrame } from './lib/waveforms';
 
@@ -26,12 +26,13 @@ export interface AppProps {
    */
   deviceClientFactory?: DeviceClientFactory;
   /**
-   * Supplied by the Tauri Android shell only. When present, `DeviceSafetyButton`
-   * shows a kind-first connect UI (choose Coyote/爪印/灵猫/Opossum, then pick
-   * the device) instead of the single Web-Bluetooth chooser button — see
-   * `DeviceSession.connectDeviceKindTauri()`'s doc for why.
+   * Override `DeviceSession.connectDevice()`'s device-picking step. Defaults
+   * to a single Web Bluetooth chooser scoped to all 4 DG-Lab device kinds
+   * (`requestDgLabDevice()`). The Tauri Android shell supplies
+   * `requestDgLabDeviceTauri()` instead — same one-button, auto-detected-kind
+   * experience, over plugin-blec.
    */
-  connectAuxTauri?: TauriAuxConnectFn;
+  requestDeviceTauri?: RequestDeviceFn;
 }
 
 interface ChannelRotationDevice {
@@ -102,7 +103,7 @@ function applyFire(d: FireApplyDeps) {
   d.setFiring(true);
 }
 
-export default function App({ deviceClientFactory, connectAuxTauri }: AppProps = {}) {
+export default function App({ deviceClientFactory, requestDeviceTauri }: AppProps = {}) {
   const [displayName, setDisplayName] = useState(() =>
     localStorage.getItem('dg-chat-name') ?? ''
   );
@@ -133,7 +134,7 @@ export default function App({ deviceClientFactory, connectAuxTauri }: AppProps =
 
   const safety = useSafetyAccepted();
   const peerRoom = usePeerRoom(displayName);
-  const device = useDevice({ clientFactory: deviceClientFactory, connectAuxTauri });
+  const device = useDevice({ clientFactory: deviceClientFactory, requestDevice: requestDeviceTauri });
   const waveforms = useWaveforms();
 
   // 保持引用最新，避免闭包过时
@@ -491,7 +492,6 @@ export default function App({ deviceClientFactory, connectAuxTauri }: AppProps =
             sensor={device.sensor}
             opossum={device.opossum}
             onConnectDevice={device.connectDevice}
-            onConnectDeviceKindTauri={connectAuxTauri ? device.connectDeviceKindTauri : undefined}
             onDisconnectSensor={device.disconnectSensor}
             onDisconnectOpossum={device.disconnectOpossum}
           />

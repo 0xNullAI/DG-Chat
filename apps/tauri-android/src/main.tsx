@@ -7,7 +7,7 @@ import App from '@chat/App';
 import './styles.css';
 import { TauriBlecDeviceClient } from '@dg-kit/transport-tauri-blec';
 import { showDevicePicker } from './components/show-device-picker';
-import { connectAuxTauri } from './connect-aux-tauri';
+import { requestDeviceTauri } from './request-device-tauri';
 import { wrapWithLifecycleSafety } from './lifecycle-safety';
 import { installAndroidShellBehaviours, withBlePermissionHelp } from './android-shell';
 
@@ -43,7 +43,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           connect: () => withBlePermissionHelp(() => inner.connect()),
         };
       }}
-      connectAuxTauri={(kind, adapter) => withBlePermissionHelp(() => connectAuxTauri(kind, adapter))}
+      // requestDgLabDeviceTauri()'s own permission check (before any scan
+      // runs) is what throws "未授予蓝牙权限" now — wrap it here so a denied
+      // prompt still surfaces the friendly modal, mirroring the
+      // deviceClientFactory wrapping above.
+      requestDeviceTauri={() => withBlePermissionHelp(() => requestDeviceTauri())}
     />
   </React.StrictMode>,
 );
