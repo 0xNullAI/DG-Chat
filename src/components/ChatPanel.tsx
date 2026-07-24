@@ -38,6 +38,7 @@ export function ChatPanel({ messages, onSend, onSendMedia, members = [], selfId 
   const [recElapsed, setRecElapsed] = useState(0);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
   const pendingMentionsRef = useRef<ChatMention[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -88,17 +89,20 @@ export function ChatPanel({ messages, onSend, onSendMedia, members = [], selfId 
     e.target.value = '';
     if (!file) return;
     setBusy(true);
+    setMediaError(null);
     try {
       const { blob, w, h } = await compressImage(file);
       await onSendMedia(blob, 'image', { w, h });
     } catch (err) {
       console.error('[DG-Chat] image send failed', err);
+      setMediaError('图片发送失败，请重试');
     } finally {
       setBusy(false);
     }
   }
 
   async function startRec() {
+    setMediaError(null);
     try {
       const rec = await startRecording();
       recStartRef.current = Date.now();
@@ -106,6 +110,7 @@ export function ChatPanel({ messages, onSend, onSendMedia, members = [], selfId 
       setRecorder(rec);
     } catch (err) {
       console.error('[DG-Chat] mic access failed', err);
+      setMediaError('无法访问麦克风，请检查权限设置');
     }
   }
 
@@ -119,6 +124,7 @@ export function ChatPanel({ messages, onSend, onSendMedia, members = [], selfId 
       if (blob.size > 0) await onSendMedia(blob, 'audio', { durationMs });
     } catch (err) {
       console.error('[DG-Chat] voice send failed', err);
+      setMediaError('语音发送失败，请重试');
     } finally {
       setBusy(false);
     }
@@ -245,6 +251,18 @@ export function ChatPanel({ messages, onSend, onSendMedia, members = [], selfId 
                 <span className="truncate">{m.name}</span>
               </button>
             ))}
+          </div>
+        )}
+        {mediaError && (
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-sm text-[var(--danger)]">
+            <span>{mediaError}</span>
+            <button
+              onClick={() => setMediaError(null)}
+              className="shrink-0 text-[var(--text-faint)] hover:text-[var(--text)]"
+              title="关闭"
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
         {recorder ? (
