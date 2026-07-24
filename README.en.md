@@ -82,7 +82,7 @@ src/
     waveforms.ts      built-ins + .pulse import (via @dg-kit/waveforms)
 ```
 
-All BLE and waveform code is reused from [`@dg-kit/*`](https://github.com/0xNullAI/DG-Kit). DG-Chat itself focuses on the React UI, the PeerJS-based P2P transport, and room state.
+All BLE and waveform code is reused from [`@dg-kit/*`](https://github.com/0xNullAI/DG-Kit). DG-Chat itself focuses on the React UI, the Cloudflare Durable Object WebSocket relay, and room state — there is no WebRTC/PeerJS despite older docs.
 
 ## Scripts
 
